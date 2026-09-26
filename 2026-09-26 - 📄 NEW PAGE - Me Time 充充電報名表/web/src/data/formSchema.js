@@ -133,6 +133,7 @@ export const formSchema = [
     column: '電郵通知',
     type: 'radio',
     label: '你是否需要電郵通知？',
+    required: true,
     options: [
       {
         value: EMAIL_CONSENT.yes,
