@@ -161,7 +161,49 @@ flowchart TD
 - 寄件人就是這個 Apps Script 專案的執行身分（教堂的 Google 帳號），**無法自訂寄件網域**，報名者會看到該帳號地址。
 - 每日寄信額度：一般 Gmail 帳號 100 封、Gmail Workspace 1,500 封。以本活動規模綽綽有餘。
 - 欄名不同步是**靜默失敗**：`ensureHeader_()` 不會報錯（標題列本來就一致），只會導致 `skipped: missing-column`。改欄名時務必同步 `Code.gs` 的常數。
-- `gas/appsscript.json` 沒有宣告 scope，Apps Script 會在儲存或重新部署時要求授權寄信權限（`https://www.googleapis.com/auth/gmail.send`）。**必須同意**，否則 `MailApp` 會擲出例外（`failed`）。
+
+### 授權（最常見的失敗原因）
+
+`MailApp.sendEmail()` 需要 `script.send_mail` 權限，**必須由專案擁有者親自同意一次**，無法用程式碼繞過。未授權時的症狀：
+
+```
+你沒有呼叫「MailApp.sendEmail」的權限。必要權限：
+https://www.googleapis.com/auth/script.send_mail
+```
+
+```mermaid
+flowchart TD
+    A["doPost 寫入試算表成功"] --> B["sendConfirmationEmail_()"]
+    B --> C{"MailApp.sendEmail()"}
+    C -->|"未授權"| D["status: failed<br/>報名仍回 ok:true"]
+    D --> D1["前端 console.warn<br/>報名者看到成功畫面"]
+    D1 --> D2["❌ 報名者收不到信<br/>且沒有任何人察覺"]
+    C -->|"已授權"| E["status: sent ✅"]
+```
+
+**這個失敗模式特別危險**，因為寄信失敗被刻意降級成不影響報名（見上方第 2 點），所以報名完全正常、畫面顯示成功，只有收不到信。務必主動測試一次。
+
+授權步驟（`Code.gs` 的 `testEmail()` 註解有完整版）：
+
+1. 把 `Code.gs` 的 `TEST_RECIPIENT` 改成自己的電郵地址並儲存。
+2. 編輯器「執行」→ 選 `testEmail` →「執行」。
+3. 權限視窗 → 選擇自己的帳號 →「允許」。若出現「Google 尚未驗證此應用程式」→ 進階 →「前往（不安全）」。**這是 Google 對所有自訂腳本的標準警告，不是異常。**
+4. 執行紀錄出現「測試信已寄出：…」即授權成功。
+5. **重新部署**（部署 → 管理部署 → 編輯 → 版本：新增版本 → 部署）。只授權不重新部署，Web App 仍會以舊的權限身分執行 `doPost`。
+
+`testEmail()` **不會**被 `/exec` 呼叫到：GAS 部署為網頁應用程式時只會把 GET / POST 派發給 `doGet` / `doPost`，所以它不會變成公開的寄信入口。
+
+### 宣告的權限
+
+`gas/appsscript.json` 的 `oauthScopes` 明確宣告兩個最小權限：
+
+| Scope | 用途 |
+| --- | --- |
+| `https://www.googleapis.com/auth/spreadsheets.currentonly` | 讀寫**本專案附加的**試算表（容器綁定腳本的最窄範圍） |
+| `https://www.googleapis.com/auth/script.send_mail` | `MailApp.sendEmail()` 寄信 |
+
+- 必須**全部列出**：一旦宣告 `oauthScopes`，Apps Script 就停止自動推斷，漏寫的權限會在執行時才報錯。
+- 刻意**不用** `gmail.send`（可寄信但同時涵蓋草稿、標籤等更廣範圍），也**不用** `GmailApp`（它需要 `gmail.send`）。`MailApp` + `script.send_mail` 是最小權限組合。
 
 ## 失敗語意
 
