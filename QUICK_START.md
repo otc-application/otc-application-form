@@ -10,7 +10,7 @@
 2. 系統管理員
 
 - 報名網頁：https://otc-application.github.io/otc-application-form/#registration
-- Google 試算表（Excel）：https://docs.google.com/spreadsheets/d/1Yzy4A4Ba5PXAHHN0m1AxHTiNF5cCtoWE0JjSrEBi0ao/edit?gid=0#gid=0
+- Google 試算表（Excel）：https://docs.google.com/spreadsheets/d/1wVaSHBLfI3dPY1_R23lrZj3mi8EPhkO17YBbRzpaIus/edit?gid=0#gid=0
 - README 文件：https://github.com/otc-application/otc-application-form/blob/main/README.md#快速開始
 
 3. 程式開發員
