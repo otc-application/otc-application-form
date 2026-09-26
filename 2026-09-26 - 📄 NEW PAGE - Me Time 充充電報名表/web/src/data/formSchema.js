@@ -27,6 +27,14 @@ export const sessionDates = [
 /** 兒童區欄位前綴，試算表每個日期一欄。 */
 export const childrenColumnPrefix = '兒童區 - '
 
+/**
+ * 電郵通知的選項值。
+ *
+ * 這兩個字串同時是**試算表儲存的內容**與 GAS 判斷要不要寄信的依據，
+ * `gas/Code.gs` 的 `EMAIL_CONSENT_YES` 必須與 `yes` 完全相同。
+ */
+export const EMAIL_CONSENT = { yes: '需要', no: '不需要' }
+
 export const formSchema = [
   {
     name: 'attendeeName',
@@ -119,6 +127,34 @@ export const formSchema = [
     label: '本人會帶子女享用兒童區的藝術／益智遊戲',
     hint: '勾選場次後，請填寫每位子女的姓名與年齡；不帶子女請略過此區。',
     dates: sessionDates,
+  },
+  {
+    name: 'emailNotify',
+    column: '電郵通知',
+    type: 'radio',
+    label: '你是否需要電郵通知？',
+    options: [
+      {
+        value: EMAIL_CONSENT.yes,
+        label: EMAIL_CONSENT.yes,
+        fields: [
+          {
+            name: 'email',
+            column: '電郵地址',
+            type: 'email',
+            label: '電郵地址',
+            required: true,
+            placeholder: '請輸入電郵地址',
+            hint: '我們會將報名確認信寄到這個地址。',
+            dependsOn: { field: 'emailNotify', value: EMAIL_CONSENT.yes },
+          },
+        ],
+      },
+      {
+        value: EMAIL_CONSENT.no,
+        label: EMAIL_CONSENT.no,
+      },
+    ],
   },
 ]
 
