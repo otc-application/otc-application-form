@@ -1,0 +1,15 @@
+# 依賴與建置輸出
+node_modules/
+dist/
+
+# 環境變數（含 GAS Web App 網址，不可 commit）
+.env
+.env.local
+.env.*.local
+
+# 編輯器 / 作業系統
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
