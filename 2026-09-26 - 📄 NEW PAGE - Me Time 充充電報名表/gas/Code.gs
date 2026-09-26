@@ -1,7 +1,8 @@
 /**
  * 活動報名表後端（Google Apps Script）
  *
- * 職責：接收前端 POST 的 JSON，檢查／建立試算表標題列，然後 append 一列報名資料。
+ * 職責：接收前端 POST 的 JSON，檢查／建立試算表標題列，然後 append 一列報名資料；
+ *       最後在報名者勾選需要電郵通知時寄出一封確認信。
  *
  * ⚠️ 部署方式（Apps Script 編輯器右上角「部署」→「新增部署」）
  *   1. 類型：網頁應用程式
@@ -12,6 +13,18 @@
  * ⚠️ 必須綁定試算表：這個專案要以「附加在試算表上」的方式建立
  *    （開啟目標試算表 → 擴充功能 → Apps Script），才能使用
  *    getActiveSpreadsheet() 取得試算表。
+ *
+ * ⚠️ 改過 formSchema.js 的欄位之後，**必須清空目標試算表或重建標題列**，
+ *    否則 ensureHeader_() 會逐欄比對發現順序不符而拒絕寫入。
+ *
+ * ── 寄信 ────────────────────────────────────────────────────────────
+ * 確認信用 MailApp 寄出，寄件人就是這個專案的執行身分（教堂的 Google 帳號），
+ * 無法自訂寄件網域。第一次儲存或重新部署時，Apps Script 會要求授權
+ * 寄信權限（https://www.googleapis.com/auth/gmail.send）——**必須同意**，
+ * 否則 MailApp 會擲出例外。
+ *
+ * 寄信是**附加動作**：資料已經寫入試算表之後才寄，失敗只記錄在執行紀錄，
+ * 仍然回 ok:true。理由是報名資料絕不能因為寄信問題而遺失。
  *
  * ── 關於 CORS 的實作真相（不要憑印象改這裡）────────────────────────
  * Google 不允許從 ContentService 自訂 Access-Control-Allow-Origin 標頭，
@@ -29,10 +42,36 @@
  * 因為無法在 GAS 限制呼叫來源，任何拿到 /exec 網址的人都能寫入資料。
  * 公開活動報名表通常可接受；若試算表含敏感資料，請再加上共用的
  * 提交碼（token）比對，並把 /exec 網址視為密鑰不要公開。
+ * 這一點對電郵欄位尤其重要：任何人都能寫入任意電郵地址，
+ * 但只有勾選「需要」時該地址才會收到信。
  */
 
 /** 服務名稱，僅用於 doGet 的自我診斷回應。 */
 const SERVICE_NAME = 'otc-application-form'
+
+/**
+ * 電郵通知的欄位名與選項值。
+ * ⚠️ 必須與 web/src/data/formSchema.js 的 EMAIL_CONSENT 與 column 完全一致，
+ *    兩邊不同步的結果是「勾了需要但收不到信」，而且不會報錯。
+ */
+const EMAIL_NOTIFY_COLUMN = '電郵通知'
+const EMAIL_ADDRESS_COLUMN = '電郵地址'
+const EMAIL_CONSENT_YES = '需要'
+
+/** 確認信內文需要的欄位名，與 formSchema 的 column 對應。 */
+const ATTENDEE_NAME_COLUMN = '參加者姓名'
+const SESSIONS_COLUMN = '本人參加'
+
+/**
+ * 確認信的活動資訊。
+ * ⚠️ 後端拿不到前端的 event.js，所以這些值在此重複維護一份。
+ *    刻意不放進前端 payload：寄信內容必須由後端決定，不能被請求內容改寫。
+ *    **換活動時要一併修改這幾行。**
+ */
+const EVENT_TITLE = 'Me Time 充充電報名表'
+const ORGANIZER_NAME = '基督教宣道會愛荃堂'
+const CONTACT_PHONE = '24114170'
+const CONTACT_PERSON = '劉姑娘'
 
 /** 部署後可用瀏覽器直接開啟 /exec 確認服務是否上線。 */
 function doGet() {
@@ -60,11 +99,21 @@ function doPost(e) {
     var header = ensureHeader_(sheet, headers)
     sheet.appendRow(row)
 
+    // 資料已落表，寄信失敗不回報給前端，避免報名者以為失敗而重複填寫。
+    var email = { status: 'not-attempted' }
+    try {
+      email = sendConfirmationEmail_(headers, row)
+    } catch (mailError) {
+      email = { status: 'failed', error: errorMessage_(mailError) }
+    }
+    console.log('[email] 報名確認信：' + JSON.stringify(email))
+
     return jsonResponse_({
       ok: true,
       service: SERVICE_NAME,
       headerCreated: header.created,
       row: sheet.getLastRow(),
+      email: email,
     })
   } catch (error) {
     // 以 200 回應並帶 ok:false，前端才能讀到具體錯誤訊息（Google 會把
@@ -74,6 +123,68 @@ function doPost(e) {
 }
 
 /* ---------------------------------------------------------------- 內部函式 */
+
+/**
+ * 依欄位名取出該列的值。欄位不存在回傳空字串。
+ *
+ * 位置式 payload 的必然結果：後端只能靠標題列文字認欄位，
+ * 這也是欄位名必須前後端一致的原因。
+ */
+function pickCell_(headers, row, column) {
+  var index = headers.indexOf(column)
+  if (index === -1) return ''
+  var cell = row[index]
+  if (cell === null || cell === undefined) return ''
+  return String(cell).trim()
+}
+
+/**
+ * 寄出報名確認信。
+ *
+ * 必須在 appendRow 之後呼叫：資料已寫入，寄信就只是附加動作。
+ *
+ * 回傳 { status, to?, error?, reason? }：
+ *   sent    已寄出
+ *   skipped 未勾選「需要」、欄位不存在、或沒填地址
+ *   failed  MailApp 擲出例外（由呼叫端捕捉）
+ */
+function sendConfirmationEmail_(headers, row) {
+  if (pickCell_(headers, row, EMAIL_NOTIFY_COLUMN) !== EMAIL_CONSENT_YES) {
+    return { status: 'skipped', reason: 'not-requested' }
+  }
+  if (headers.indexOf(EMAIL_ADDRESS_COLUMN) === -1) {
+    return { status: 'skipped', reason: 'missing-column' }
+  }
+
+  var recipient = pickCell_(headers, row, EMAIL_ADDRESS_COLUMN)
+  if (!recipient) return { status: 'skipped', reason: 'no-address' }
+
+  var attendee = pickCell_(headers, row, ATTENDEE_NAME_COLUMN)
+  var sessions = pickCell_(headers, row, SESSIONS_COLUMN)
+
+  MailApp.sendEmail({
+    to: recipient,
+    subject: '【' + EVENT_TITLE + '】已收到您的報名',
+    body: [
+      attendee + ' 您好：',
+      '',
+      '已收到您「' + EVENT_TITLE + '」的報名。',
+      '',
+      '・參加者姓名：' + attendee,
+      '・參加場次：' + sessions,
+      '',
+      '我們會以電話聯絡確認報名詳情，如需查詢請致電 ' +
+        CONTACT_PHONE +
+        '（' +
+        CONTACT_PERSON +
+        '）。',
+      '',
+      ORGANIZER_NAME,
+    ].join('\n'),
+  })
+
+  return { status: 'sent', to: recipient }
+}
 
 function parseBody_(e) {
   if (!e || !e.postData || !e.postData.contents) {

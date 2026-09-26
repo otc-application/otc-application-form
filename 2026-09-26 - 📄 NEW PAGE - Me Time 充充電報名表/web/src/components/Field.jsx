@@ -21,7 +21,19 @@ function ErrorText({ children }) {
   )
 }
 
+/** 單行輸入框的原生屬性對應，讓手機選單與瀏覽器自動填寫行為正確。 */
+const INPUT_ATTRS = {
+  tel: { type: 'tel', inputMode: 'tel', autoComplete: 'tel' },
+  email: { type: 'email', inputMode: 'email', autoComplete: 'email' },
+}
+
 function TextField({ field, value, error, onChange }) {
+  const attrs = INPUT_ATTRS[field.type] ?? {
+    type: 'text',
+    inputMode: undefined,
+    autoComplete: 'name',
+  }
+
   return (
     <div>
       <label className="field-label" htmlFor={field.name}>
@@ -31,9 +43,9 @@ function TextField({ field, value, error, onChange }) {
       <input
         id={field.name}
         name={field.name}
-        type={field.type === 'tel' ? 'tel' : 'text'}
-        inputMode={field.type === 'tel' ? 'tel' : undefined}
-        autoComplete={field.type === 'tel' ? 'tel' : 'name'}
+        type={attrs.type}
+        inputMode={attrs.inputMode}
+        autoComplete={attrs.autoComplete}
         className="field-input"
         placeholder={field.placeholder}
         value={value ?? ''}
@@ -288,6 +300,7 @@ export default function Field({ field, values, errors, onChange }) {
   switch (field.type) {
     case 'text':
     case 'tel':
+    case 'email':
       return (
         <TextField
           field={field}

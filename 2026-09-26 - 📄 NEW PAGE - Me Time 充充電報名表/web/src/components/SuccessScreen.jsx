@@ -1,5 +1,5 @@
 import { eventInfo } from '../data/event.js'
-import { sessionDates } from '../data/formSchema.js'
+import { EMAIL_CONSENT, sessionDates } from '../data/formSchema.js'
 
 function SummaryRow({ label, children }) {
   return (
@@ -77,6 +77,13 @@ export default function SuccessScreen({ values, onReset }) {
             <SummaryRow label="參加場次">
               {sessions.length > 0 ? sessions.join('、') : '未選擇'}
             </SummaryRow>
+            {values.emailNotify && (
+              <SummaryRow label="電郵通知">
+                {values.emailNotify === EMAIL_CONSENT.yes
+                  ? `需要（${values.email}）`
+                  : values.emailNotify}
+              </SummaryRow>
+            )}
             {children.length > 0 && (
               <SummaryRow label="兒童區">
                 <ul className="space-y-1">
