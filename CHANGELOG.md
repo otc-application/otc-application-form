@@ -7,6 +7,47 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-27
+
+### Fixed
+
+- **更新 `README.md` 與 `QUICK_START.md` 的 Google 試算表連結**。兩個檔案
+  指向的都是一份舊試算表，與 GAS 實際綁定的並非同一份，因此文件提供的
+  報名資料連結是錯的，而且**不會有任何程式因此報錯**。已換成實際綁定的
+  試算表，並以 CSV 匯出比對確認標題列 16 欄與 `buildColumns()` 的輸出
+  完全一致（欄數、順序、每欄文字皆相符）。
+- `AGENTS.md` 新增規則：**試算表連結是動態的，不可假設，任何時候都要先問**
+  ——換試算表不會留下 repo 內的線索，文件裡的連結會靜悄悄變成過期值，
+  不得從舊檔案、記憶或推測取得 ID。並附上免登入的驗證指令
+  （`/export?format=csv`）與 UTF-8 解碼提醒。
+- 補充 PII 風險的實測證據：試算表若設為「知道連結的任何人均可」，
+  上述 CSV 匯出網址**不需登入即可下載整份報名資料**，不必有人逐格點開。
+  因此權限應設為「指定 Google 帳號可編輯」。
+- **補上 `script.send_mail` 授權設定，確認信才寄得出去**。0.4.1 的部署
+  上線後報名可以正常寫入，但每一封確認信都失敗，執行紀錄顯示
+  「你沒有呼叫 MailApp.sendEmail 的權限。必要權限：
+  https://www.googleapis.com/auth/script.send_mail」。
+  原因是 `gas/appsscript.json` **完全沒有宣告 `oauthScopes`**，寄信權限
+  只能靠 Apps Script 推斷，且無論如何都要由專案擁有者親自同意一次。
+  現在明確宣告兩個最小權限（`spreadsheets.currentonly` 與
+  `script.send_mail`），讓所需權限在畫面上可見、可預期。
+- `Code.gs` 新增 `testEmail()`：從編輯器手動執行一次即可完成授權並確認
+  寄信正常，並在註解中寫明「授權後**必須重新部署**」。此函式不會被
+  `/exec` 呼叫到（GAS 只把 GET / POST 派發給 `doGet` / `doPost`），
+  因此不會變成公開的寄信入口。`TEST_RECIPIENT` 留有 placeholder 與
+  自我保護：未改成自己的地址前會直接拋錯，不會寄給無效收件人。
+
+### Changed
+
+- `web/.env.production` 的 `VITE_GAS_API_URL` 同步換成帶有上述
+  `oauthScopes` 的重新部署網址。**但僅換網址不足以寄信**：授權必須由專案
+  擁有者在 Apps Script 編輯器手動執行一次 `testEmail()` 並同意權限，
+  授權後還要再重新部署，Web App 才會以新的權限身分執行 `doPost`。
+- `doc/api.md` 更正先前記錄錯誤的權限名稱：`MailApp` 需要的是
+  `script.send_mail`，**不是** `gmail.send`。並補上授權章節，說明這個
+  失敗模式為何危險 —— 寄信失敗被刻意降級成不影響報名，因此報名正常、
+  畫面顯示成功、只有收不到信，沒有主動測試就會一直沒人察覺。
+
 ## [0.4.1] - 2026-09-27
 
 ### Changed

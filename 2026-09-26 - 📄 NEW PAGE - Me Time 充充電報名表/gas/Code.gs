@@ -19,9 +19,17 @@
  *
  * ── 寄信 ────────────────────────────────────────────────────────────
  * 確認信用 MailApp 寄出，寄件人就是這個專案的執行身分（教堂的 Google 帳號），
- * 無法自訂寄件網域。第一次儲存或重新部署時，Apps Script 會要求授權
- * 寄信權限（https://www.googleapis.com/auth/gmail.send）——**必須同意**，
- * 否則 MailApp 會擲出例外。
+ * 無法自訂寄件網域。MailApp 需要 script.send_mail 權限，已宣告於
+ * appsscript.json 的 oauthScopes。
+ *
+ * ⚠️ **必須由專案擁有者親自授權一次，否則每一封確認信都寄不出去。**
+ *    未授權時 doPost 會記錄
+ *    「你沒有呼叫 MailApp.sendEmail 的權限。必要權限：
+ *     https://www.googleapis.com/auth/script.send_mail」
+ *    而**報名本身仍會成功**（這是刻意的，見下），所以症狀是「有人報名成功
+ *    但收不到信」，很容易被忽略。授權步驟見 testEmail() 的說明。
+ *
+ *    授權＝執行一次 testEmail()（編輯器內）→ 同意權限 → **重新部署**。
  *
  * 寄信是**附加動作**：資料已經寫入試算表之後才寄，失敗只記錄在執行紀錄，
  * 仍然回 ok:true。理由是報名資料絕不能因為寄信問題而遺失。
@@ -76,6 +84,50 @@ const CONTACT_PERSON = '劉姑娘'
 /** 部署後可用瀏覽器直接開啟 /exec 確認服務是否上線。 */
 function doGet() {
   return jsonResponse_({ ok: true, service: SERVICE_NAME, sheet: describeSheet_() })
+}
+
+/**
+ * 手動測試寄信 —— **同時也是完成授權的步驟**。
+ *
+ * 為什麼需要這個函式：MailApp 需要 script.send_mail 權限，而權限必須由
+ * 專案擁有者親自同意，無法用程式碼繞過。未授權時症狀是「報名成功但收不到
+ * 信」，因為寄信失敗被刻意降級成不影響報名（見檔頭說明），所以必須主動測試。
+ *
+ * ⚠️ 這個函式**不會**被 /exec 呼叫到：GAS 部署為網頁應用程式時只會把
+ *    GET / POST 派發給 doGet / doPost。它只能在 Apps Script 編輯器手動執行，
+ *    因此不會變成公開的寄信入口。
+ *
+ * 操作步驟（只需做一次，之後不再需要）：
+ *   1. 把下面的 TEST_RECIPIENT 改成自己的電郵地址並儲存。
+ *   2. 編輯器上方選單「執行」→ 選 testEmail →「執行」。
+ *   3. 跳出權限視窗 → 選擇自己的 Google 帳號 →「允許」。
+ *      若出現「Google 尚未驗證此應用程式」→ 進階 →「前往（不安全）」。
+ *      **這是 Google 對所有自訂腳本的標準警告，不是異常。**
+ *   4. 執行紀錄出現「測試信已寄出：…」即代表授權成功。
+ *   5. **重新部署**（部署 → 管理部署 → 編輯 → 版本：新增版本 → 部署）。
+ *      Web App 要以新的權限身分執行 doPost，只授權不重新部署仍會失敗。
+ */
+const TEST_RECIPIENT = 'your-email@example.com' // ← 改成自己的電郵地址
+
+function testEmail() {
+  if (TEST_RECIPIENT === 'your-email@example.com') {
+    throw new Error('請先把 Code.gs 頂部的 TEST_RECIPIENT 改成自己的電郵地址。')
+  }
+
+  MailApp.sendEmail({
+    to: TEST_RECIPIENT,
+    subject: '【' + EVENT_TITLE + '】寄信測試',
+    body: [
+      '這是「' + EVENT_TITLE + '」報名系統的寄信測試。',
+      '',
+      '如果你收到這封信，代表 script.send_mail 權限已授權，',
+      '報名者勾選「需要電郵通知」時就能收到確認信。',
+      '',
+      '時間：' + new Date().toString(),
+      '時區：' + Session.getScriptTimeZone(),    ].join('\n'),
+  })
+
+  console.log('測試信已寄出：' + TEST_RECIPIENT)
 }
 
 /**
