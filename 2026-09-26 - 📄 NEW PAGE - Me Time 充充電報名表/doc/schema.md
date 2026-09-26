@@ -144,7 +144,7 @@ flowchart TD
     B1 --> SHARE["column: 小組名稱（如適用）"]
     C1 --> SHARE
 
-    Q2["emailNotify<br/>你是否需要電郵通知？<br/>required: false"] --> D["需要"]
+    Q2["emailNotify<br/>你是否需要電郵通知？<br/>required: true"] --> D["需要"]
     Q2 --> E["不需要"]
     D --> D1["email（type: email）<br/>required: true<br/>dependsOn: 需要"]
     E -. "不顯示，值也被略過" .-> D1
@@ -155,7 +155,7 @@ flowchart TD
 - **子欄位永遠存在於狀態樹中**，即使未顯示；`createInitialValues()` 會為所有欄位建立初始值。未顯示的子欄位送出時為空字串，因此試算表欄位固定 16 欄，不會因為使用者選了哪一類而變動。
 - **切換選項不會清除另一組的已填值**。因為 `believerGroup` 與 `memberGroup` 是兩個獨立的 key、共用一個 `column`，`buildRow()` 的「先到先得」規則決定了**外觀順序較前**的欄位勝出（見下）。電郵地址則由 `dependsOn` 處理：`emailNotify` 不是「需要」時該欄被略過，**不會**在試算表留下無人同意接收的地址。
 - `referrerName` / `referrerPhone` / `believerGroup` / `memberGroup` 都**沒有** `required`，因此驗證時不會被檢查。畫面上以「（如適用）」標示。
-- `email` **有** `required: true`，但只在 `emailNotify === '需要'` 時才檢查（`validateForm()` 只檢查被選中選項的子欄位）。`emailNotify` 本身**非必填**，不選也視為有效表單。
+- `email` **有** `required: true`，但只在 `emailNotify === '需要'` 時才檢查（`validateForm()` 只檢查被選中選項的子欄位）。`emailNotify` 本身 `required: true`，不選會擋下送出（`請選擇「你是否需要電郵通知？」`）；選「不需要」時整組通過，電郵地址留空。
 
 ## FormState 資料形狀
 
@@ -322,7 +322,7 @@ flowchart TB
 兩個刻意的寬鬆設計：
 
 - **兒童區**該日期完全沒填資料是允許的（`list.length === 0` 直接 `continue`），只有「填了一半」才報錯。錯誤訊息中含 `（六）` 等括號內容，來自 `date.label`。
-- **電郵通知**整組不選不報錯（`emailNotify` 非必填）；只有勾了「需要」才會因為地址空白或格式錯誤而擋下送出。`EMAIL_PATTERN` 是刻意簡化的實用檢查，不追求完整 RFC。
+- **電郵地址**只在勾「需要」時才要求填寫且須符合格式；選「不需要」時即使狀態樹裡還留著先前輸入的地址，`buildRow()` 也會依 `dependsOn` 略過，該欄在試算表留空。`EMAIL_PATTERN` 是刻意簡化的實用檢查，不追求完整 RFC。
 
 ## 修改 schema 的注意事項
 
