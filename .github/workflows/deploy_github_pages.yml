@@ -1,0 +1,66 @@
+name: Deploy to Pages
+on:
+  push:
+    branches: [ main ] # 每次自動合併到 main 都會重新建置並發布
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 前端位於「<活動資料夾>/web/」，不是 repo 根目錄。
+      # 活動資料夾名稱會隨活動與日期變動，所以不要寫死路徑，改為自動搜尋。
+      - name: Locate web app
+        id: web
+        run: |
+          # 活動資料夾名稱含空格與 emoji，**不可**用 xargs：xargs 會依空白
+          # 把路徑切成多個參數，dirname 會對每個片段各輸出一行，導致寫入
+          # $GITHUB_OUTPUT 的內容變成多行而報 "Invalid format" 錯誤。
+          # 因此改用 shell 參數展開去掉最後一段。
+          path=$(find . -maxdepth 4 -name package.json -not -path '*/node_modules/*' -print -quit)
+          if [ -z "$path" ]; then
+            echo "::error::找不到前端專案（package.json），無法建置。"
+            exit 1
+          fi
+          dir=${path%/*}
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "web app directory: $dir"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          # 用 glob 而不是展開後的路徑：活動資料夾名含空格，glob 較穩定，
+          # 且換活動資料夾時不需要回頭改這裡。setup-node 預設只找 repo
+          # 根目錄的 lockfile，根目錄沒有的話這一步會直接失敗。
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ steps.web.outputs.dir }}
+
+      - name: Build project
+        run: npm run build
+        working-directory: ${{ steps.web.outputs.dir }}
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Vite 預設輸出到 dist；若改用其他建置工具需同步修改此路徑。
+          path: ${{ steps.web.outputs.dir }}/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -59,7 +59,7 @@
 - **維持精簡，不要塞說明。** 兩個檔案都只放連結與必要的一句話。維護注意事項寫在 `AGENTS.md`（本節）與 `QUICK_START.md` 的「維護說明」，不要塞進 `## 快速開始` 本體。
 - **受眾分離是硬規則**：一般用家段落**不得出現技術術語或設定步驟**。不可寫「請複製 `.env.example` 為 `.env.local`」這種只有維護者能做的事（這個錯誤實際發生過，見 `web/src/components/RegistrationForm.jsx` 的未設定提示已改為致電報名）。要給維護者看的技術細節一律 `console.warn` 或寫在文件裡。
 - **報名網頁連結必須帶 `#registration` 錨點**，點擊後直接跳到表單。QR Code 的 `data=` 參數也要用同一個帶錨點的網址。
-- **QR Code 的 `data=` 必須百分比編碼**（`:` → `%3A`、`/` → `%2F`、`#` → `%23`）。未編碼的 `#` 會被當成 URL fragment 截斷，QR 內編入的網址會**缺少錨點**，掃描只會開到頁面頂端。**這個錯誤不會讓圖片壞掉，所以肉眼看不出來** —— 實測過：未編碼版本解碼出來是 `https://mcc-mak.github.io/otc-application-form/`（無錨點），編碼後才是 `.../#registration`。修改 QR Code 後請實際解碼驗一次，不要只看圖片有沒有顯示。
+- **QR Code 的 `data=` 必須百分比編碼**（`:` → `%3A`、`/` → `%2F`、`#` → `%23`）。未編碼的 `#` 會被當成 URL fragment 截斷，QR 內編入的網址會**缺少錨點**，掃描只會開到頁面頂端。**這個錯誤不會讓圖片壞掉，所以肉眼看不出來** —— 實測過：未編碼版本解碼出來是 `https://otc-application.github.io/otc-application-form/`（無錨點），編碼後才是 `.../#registration`。修改 QR Code 後請實際解碼驗一次，不要只看圖片有沒有顯示。
 - **QR Code 用 `api.qrserver.com` 產生**：README 內嵌圖片，`QUICK_START.md` 用可點的文字網址。兩者的 `data=` 必須是同一個編碼後的值。
 - **試算表連結含報名者姓名與電話（PII）**。repo 是公開的，因此該連結等同公開可被搜尋。真正的保護只能靠試算表權限（例如指定 Google 帳號可編輯，而非「知道連結的任何人均可」），不要靠「文件沒放連結」。
 - **錨點會跟著標題改變**：README 標題是中文 `## 快速開始`，因此 GitHub 錨點是 `#快速開始`，不是 `#quick-start`。改標題就要同步改 `QUICK_START.md` 內指向該錨點的連結。

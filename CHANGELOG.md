@@ -25,6 +25,14 @@
 
 ### Changed
 
+- **專案遷移至新 GitHub repo** `otc-application/otc-application-form`，
+  `origin` remote 已指向新 repo。`README.md`、`QUICK_START.md`、
+  `AGENTS.md` 與 `doc/architecture.md` 中的網域與 repo 路徑全部更新為
+  `otc-application.github.io` 與 `github.com/otc-application`，
+  QR Code 的 `data=` 亦重新編碼為新網域。
+- 本 repo 首次提交完整 app 原始碼：活動資料夾（`web/`、`gas/`、`feed_prompt/`、
+  `doc/`）與 `.github/workflows/`（Pages 部署與自動合併）一併納入版控，
+  新 repo 才具備自動部署能力。
 - `README.md` 的 `## 快速開始` 精簡為純連結列表：連結改用 `[**標籤**](網址)`
   格式，移除查詢電話、報名須知、試算表權限與標題列說明、本機開發指令與
   換活動提醒。維護注意事項改置於 `AGENTS.md` 與 `QUICK_START.md`，
@@ -39,6 +47,12 @@
 - 以 `jsqr` 解碼 `QUICK_START.md` 的 QR 網址，確認編入的網址帶有
   `#registration` 錨點。
 - 一般用家段落移除網址後不含任何技術術語或設定步驟；6 個項目皆以 emoji 起頭。
+
+### Deployment Notes
+
+- 新 repo 需設定兩項才能自動部署，見 `README.md`「4. 啟用 GitHub Pages 部署」：
+  secret `GIT_PUSH_TOKEN`（自動合併 `dev-001` → `dev` → `main` 所需），
+  以及 Settings → Pages 的 Source 設為 GitHub Actions。
 
 ## [0.3.5] - 2026-09-26
 

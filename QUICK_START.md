@@ -4,20 +4,20 @@
 
 1. 一般用家
 
-- 報名網頁：https://mcc-mak.github.io/otc-application-form/#registration
-- 網頁 QRCode：https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https%3A%2F%2Fmcc-mak.github.io%2Fotc-application-form%2F%23registration
+- 報名網頁：https://otc-application.github.io/otc-application-form/#registration
+- 網頁 QRCode：https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https%3A%2F%2Fotc-application.github.io%2Fotc-application-form%2F%23registration
 
 2. 系統管理員
 
-- 報名網頁：https://mcc-mak.github.io/otc-application-form/#registration
+- 報名網頁：https://otc-application.github.io/otc-application-form/#registration
 - Google 試算表（Excel）：https://docs.google.com/spreadsheets/d/1Yzy4A4Ba5PXAHHN0m1AxHTiNF5cCtoWE0JjSrEBi0ao/edit?gid=0#gid=0
-- README 文件：https://github.com/Mcc-Mak/otc-application-form/blob/main/README.md#快速開始
+- README 文件：https://github.com/otc-application/otc-application-form/blob/main/README.md#快速開始
 
 3. 程式開發員
 
-- GitHub 庫：https://github.com/Mcc-Mak/otc-application-form/
-- README 文件：https://github.com/Mcc-Mak/otc-application-form/blob/main/README.md
-- 技術文件（架構 / API / Schema）：https://github.com/Mcc-Mak/otc-application-form/blob/main/2026-09-26%20-%20📄%20NEW%20PAGE%20-%20Me%20Time%20充充電報名表/doc/README.md
+- GitHub 庫：https://github.com/otc-application/otc-application-form/
+- README 文件：https://github.com/otc-application/otc-application-form/blob/main/README.md
+- 技術文件（架構 / API / Schema）：https://github.com/otc-application/otc-application-form/blob/main/2026-09-26%20-%20📄%20NEW%20PAGE%20-%20Me%20Time%20充充電報名表/doc/README.md
 
 ---
 

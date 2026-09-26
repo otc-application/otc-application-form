@@ -8,20 +8,20 @@
 
 ### 👥 一般用家
 
-- 📋 [**報名網頁**](https://mcc-mak.github.io/otc-application-form/#registration)
+- 📋 [**報名網頁**](https://otc-application.github.io/otc-application-form/#registration)
 - 📱 **報名網頁 QR Code**（可列印貼在告示，或轉貼到群組宣傳）：
 
-  ![Me Time 充充電報名表 QR Code](https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https%3A%2F%2Fmcc-mak.github.io%2Fotc-application-form%2F%23registration)
+  ![Me Time 充充電報名表 QR Code](https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https%3A%2F%2Fotc-application.github.io%2Fotc-application-form%2F%23registration)
 
 ### 🔧 系統管理員
 
-- 📋 [**報名網頁**](https://mcc-mak.github.io/otc-application-form/#registration)
+- 📋 [**報名網頁**](https://otc-application.github.io/otc-application-form/#registration)
 - 📊 [**Google 試算表（報名資料）**](https://docs.google.com/spreadsheets/d/1Yzy4A4Ba5PXAHHN0m1AxHTiNF5cCtoWE0JjSrEBi0ao/edit?gid=0#gid=0)
 
 ### 💻 程式開發員
 
-- 💻 [**GitHub 專案**](https://github.com/Mcc-Mak/otc-application-form/)
-- 📖 [**Documentation（設定與部署）**](https://github.com/Mcc-Mak/otc-application-form/blob/main/README.md)
+- 💻 [**GitHub 專案**](https://github.com/otc-application/otc-application-form/)
+- 📖 [**Documentation（設定與部署）**](https://github.com/otc-application/otc-application-form/blob/main/README.md)
 
 ## 專案結構
 

@@ -1,0 +1,182 @@
+import { childrenColumnPrefix, formSchema } from '../data/formSchema.js'
+import { GAS_API_URL, isGasConfigured, SUBMIT_ERROR_MESSAGE } from '../config.js'
+
+/** 提交時間欄位名稱。 */
+const SUBMITTED_AT_COLUMN = '提交時間'
+
+/**
+ * 展開 schema 中所有欄位，包含 radio 選項底下的條件式子欄位。
+ * 條件式子欄位即使未顯示也會保留欄位（值留空），確保試算表欄位固定。
+ */
+function flattenFields(schema) {
+  const flat = []
+  for (const field of schema) {
+    flat.push(field)
+    for (const option of field.options ?? []) {
+      for (const sub of option.fields ?? []) flat.push(sub)
+    }
+  }
+  return flat
+}
+
+function toCellText(value) {
+  if (value === null || value === undefined) return ''
+  if (Array.isArray(value)) return value.join('、')
+  return String(value).trim()
+}
+
+/** 兒童區：每位子女呈現為「姓名（年齡歲）」，同一日期多人以「、」分隔。 */
+function formatChildren(list) {
+  if (!Array.isArray(list)) return ''
+  return list
+    .map((child) => {
+      const name = (child?.name ?? '').trim()
+      const age = (child?.age ?? '').trim()
+      if (!name) return ''
+      return age ? `${name}（${age}歲）` : name
+    })
+    .filter(Boolean)
+    .join('、')
+}
+
+function formatTimestamp(date) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  )
+}
+
+/**
+ * 試算表標題列。順序＝Questions.md 的問題順序，這是 GAS append 的依據。
+ * 相同 column 只會出現一次（多個欄位共用時取外觀順序第一個）。
+ */
+export function buildColumns(schema = formSchema) {
+  const columns = []
+  for (const field of flattenFields(schema)) {
+    if (field.column && !columns.includes(field.column)) columns.push(field.column)
+  }
+  for (const field of schema) {
+    if (field.type !== 'childrenByDate') continue
+    for (const date of field.dates) {
+      const column = childrenColumnPrefix + date.value
+      if (!columns.includes(column)) columns.push(column)
+    }
+  }
+  columns.push(SUBMITTED_AT_COLUMN)
+  return columns
+}
+
+/** 依 buildColumns 的順序產生一列資料。 */
+export function buildRow(values, schema = formSchema) {
+  const cells = new Map()
+  // 第一個有值的欄位勝出，避免共用 column 被後面的空值蓋掉。
+  const setCell = (column, text) => {
+    if (!column || !text || cells.has(column)) return
+    cells.set(column, text)
+  }
+
+  for (const field of flattenFields(schema)) {
+    setCell(field.column, toCellText(values[field.name]))
+  }
+
+  const children = values.childrenByDate ?? {}
+  for (const field of schema) {
+    if (field.type !== 'childrenByDate') continue
+    for (const date of field.dates) {
+      setCell(childrenColumnPrefix + date.value, formatChildren(children[date.value]))
+    }
+  }
+
+  setCell(SUBMITTED_AT_COLUMN, formatTimestamp(new Date()))
+
+  return buildColumns(schema).map((column) => cells.get(column) ?? '')
+}
+
+/** 依 schema 產生初始表單值。 */
+export function createInitialValues(schema = formSchema) {
+  const values = {}
+  for (const field of flattenFields(schema)) {
+    if (field.type === 'checkboxGroup') values[field.name] = []
+    else if (field.type === 'childrenByDate') {
+      values[field.name] = Object.fromEntries(field.dates.map((d) => [d.value, []]))
+    } else if (!(field.name in values)) values[field.name] = ''
+  }
+  return values
+}
+
+/** 回傳 { fieldName: 錯誤訊息 }，空物件代表通過。 */
+export function validateForm(values, schema = formSchema) {
+  const errors = {}
+
+  for (const field of schema) {
+    if (field.type === 'text' || field.type === 'tel') {
+      const value = (values[field.name] ?? '').trim()
+      if (field.required && !value) {
+        errors[field.name] = `請填寫「${field.label}」`
+      } else if (field.type === 'tel' && value && value.replace(/\D/g, '').length < 8) {
+        errors[field.name] = '請填寫有效的聯絡電話號碼'
+      }
+    } else if (field.type === 'radio' && field.required && !values[field.name]) {
+      errors[field.name] = `請選擇「${field.label}」`
+    } else if (field.type === 'checkboxGroup' && field.required) {
+      const picked = values[field.name] ?? []
+      if (picked.length === 0) errors[field.name] = `請至少選擇一項「${field.label}」`
+    } else if (field.type === 'childrenByDate') {
+      const children = values[field.name] ?? {}
+      for (const date of field.dates) {
+        const list = children[date.value] ?? []
+        if (list.length === 0) continue
+        const missing = list.some((c) => !(c?.name ?? '').trim() || !(c?.age ?? '').trim())
+        if (missing) errors[`${field.name}.${date.value}`] = `請填寫${date.label}的子女姓名與年齡`
+      }
+    }
+  }
+
+  return errors
+}
+
+/**
+ * 送出報名資料到 GAS Web App。
+ *
+ * 注意：GAS 的 doPost 即使內部錯誤也會回 200，所以除了 HTTP 狀態碼
+ * 還要檢查回應 JSON 的 ok 欄位。
+ */
+export async function submitApplication(values, schema = formSchema) {
+  if (!isGasConfigured) {
+    throw new Error(
+      '尚未設定報名 API（VITE_GAS_API_URL），請聯絡活動負責人協助報名。',
+    )
+  }
+
+  let response
+  try {
+    response = await fetch(GAS_API_URL, {
+      method: 'POST',
+      mode: 'cors',
+      // 這裡**必須**是 text/plain，不能是 application/json。
+      // JSON 的 POST 屬於 CORS 的「非簡單請求」，瀏覽器會先送 OPTIONS 預檢，
+      // 而 GAS 只把 GET/POST 派發給 doGet/doPost，預檢會拿到 405，報名就送不出去。
+      // 純文字內容型態屬於簡單請求，不需要預檢，後端仍可 JSON.parse。
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ headers: buildColumns(schema), row: buildRow(values, schema) }),
+    })
+  } catch {
+    throw new Error(SUBMIT_ERROR_MESSAGE)
+  }
+
+  if (!response.ok) throw new Error(SUBMIT_ERROR_MESSAGE)
+
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    throw new Error(SUBMIT_ERROR_MESSAGE)
+  }
+
+  if (!payload?.ok) {
+    throw new Error(payload?.error ? `報名失敗：${payload.error}` : SUBMIT_ERROR_MESSAGE)
+  }
+
+  return payload
+}
