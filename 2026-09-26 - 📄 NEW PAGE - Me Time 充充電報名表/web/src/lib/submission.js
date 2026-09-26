@@ -55,8 +55,8 @@ export function buildColumns(schema = formSchema) {
   const columns = []
   for (const field of flattenFields(schema)) {
     if (field.column && !columns.includes(field.column)) columns.push(field.column)
-  }
-  for (const field of schema) {
+    // childrenByDate 本身沒有 column，它每個日期各佔一欄，排在該欄位之後，
+    // 讓試算表欄位順序與畫面欄位順序完全一致。
     if (field.type !== 'childrenByDate') continue
     for (const date of field.dates) {
       const column = childrenColumnPrefix + date.value
@@ -65,6 +65,20 @@ export function buildColumns(schema = formSchema) {
   }
   columns.push(SUBMITTED_AT_COLUMN)
   return columns
+}
+
+/**
+ * 條件式子欄位是否應被略過。
+ *
+ * `dependsOn` 表示「父欄位必須是某個值才有意義」。典型例子是電郵地址：
+ * 使用者勾「需要」才會輸入地址，之後改選「不需要」時，狀態樹裡仍留著
+ * 剛才輸入的地址。若照樣送出，試算表就會留下一個沒人同意接收的地址。
+ * 父欄位未選（空字串）時視為不滿足條件。
+ */
+function isSuppressed_(field, values) {
+  const dependency = field.dependsOn
+  if (!dependency) return false
+  return values[dependency.field] !== dependency.value
 }
 
 /** 依 buildColumns 的順序產生一列資料。 */
@@ -77,6 +91,7 @@ export function buildRow(values, schema = formSchema) {
   }
 
   for (const field of flattenFields(schema)) {
+    if (isSuppressed_(field, values)) continue
     setCell(field.column, toCellText(values[field.name]))
   }
 
@@ -105,20 +120,45 @@ export function createInitialValues(schema = formSchema) {
   return values
 }
 
-/** 回傳 { fieldName: 錯誤訊息 }，空物件代表通過。 */
+/** 電郵格式：夠用即可，不追求完整 RFC。 */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** text / tel / email 共用的必填與格式檢查。 */
+function validateTextLike(field, value, errors) {
+  const text = (value ?? '').trim()
+  if (field.required && !text) {
+    errors[field.name] = `請填寫「${field.label}」`
+    return
+  }
+  if (!text) return
+  if (field.type === 'tel' && text.replace(/\D/g, '').length < 8) {
+    errors[field.name] = '請填寫有效的聯絡電話號碼'
+  } else if (field.type === 'email' && !EMAIL_PATTERN.test(text)) {
+    errors[field.name] = '請填寫有效的電郵地址'
+  }
+}
+
+/**
+ * 回傳 { fieldName: 錯誤訊息 }，空物件代表通過。
+ *
+ * radio 被選中時，會再檢查該選項底下的條件式子欄位（電郵地址即為一例）；
+ * 未被選中的選項，其子欄位一律不檢查，也不送出。
+ */
 export function validateForm(values, schema = formSchema) {
   const errors = {}
 
   for (const field of schema) {
-    if (field.type === 'text' || field.type === 'tel') {
-      const value = (values[field.name] ?? '').trim()
-      if (field.required && !value) {
-        errors[field.name] = `請填寫「${field.label}」`
-      } else if (field.type === 'tel' && value && value.replace(/\D/g, '').length < 8) {
-        errors[field.name] = '請填寫有效的聯絡電話號碼'
+    if (field.type === 'text' || field.type === 'tel' || field.type === 'email') {
+      validateTextLike(field, values[field.name], errors)
+    } else if (field.type === 'radio') {
+      if (field.required && !values[field.name]) {
+        errors[field.name] = `請選擇「${field.label}」`
+      } else if (values[field.name]) {
+        const active = field.options.find((option) => option.value === values[field.name])
+        for (const sub of active?.fields ?? []) {
+          validateTextLike(sub, values[sub.name], errors)
+        }
       }
-    } else if (field.type === 'radio' && field.required && !values[field.name]) {
-      errors[field.name] = `請選擇「${field.label}」`
     } else if (field.type === 'checkboxGroup' && field.required) {
       const picked = values[field.name] ?? []
       if (picked.length === 0) errors[field.name] = `請至少選擇一項「${field.label}」`
@@ -176,6 +216,12 @@ export async function submitApplication(values, schema = formSchema) {
 
   if (!payload?.ok) {
     throw new Error(payload?.error ? `報名失敗：${payload.error}` : SUBMIT_ERROR_MESSAGE)
+  }
+
+  // 報名資料已寫入試算表，確認信寄不出去不影響報名結果，因此不向使用者示警。
+  // 實際收件情況需查看 GAS 執行紀錄或 Apps Script 的 Cloud Logging。
+  if (payload?.email?.status === 'failed') {
+    console.warn('[報名] 確認信未寄出：', payload.email.error)
   }
 
   return payload

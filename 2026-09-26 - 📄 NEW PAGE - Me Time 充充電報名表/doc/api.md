@@ -68,6 +68,7 @@ sequenceDiagram
     participant F as 瀏覽器<br/>App.jsx + submission.js
     participant G as GAS doPost
     participant S as Google 試算表
+    participant M as MailApp
 
     U->>F: 按「送出報名資料」
     F->>F: validateForm(values)<br/>欄位級驗證
@@ -93,7 +94,20 @@ sequenceDiagram
         end
         G->>S: appendRow(row)
         S-->>G: 寫入成功
-        G-->>F: 200 { ok:true, headerCreated, row }
+        Note over G,M: 資料已落表，寄信是附加動作
+        G->>G: sendConfirmationEmail_(headers, row)
+        alt 電郵通知欄 = 需要 且有地址
+            G->>M: MailApp.sendEmail()
+            alt 寄信成功
+                M-->>G: 已寄出
+                G->>G: email = { status:"sent", to }
+            else MailApp 擲出例外
+                G->>G: email = { status:"failed", error }<br/>console.error 記錄
+            end
+        else 未勾選 / 沒地址 / 欄位不存在
+            G->>G: email = { status:"skipped", reason }
+        end
+        G-->>F: 200 { ok:true, headerCreated, row, email }
         F->>F: status = success<br/>values 存入 submitted
         F-->>U: 捲動至頂、渲染 SuccessScreen
     end
@@ -106,7 +120,8 @@ sequenceDiagram
   "ok": true,
   "service": "otc-application-form",
   "headerCreated": false,
-  "row": 12
+  "row": 12,
+  "email": { "status": "sent", "to": "chan@example.com" }
 }
 ```
 
@@ -116,6 +131,37 @@ sequenceDiagram
 | `service` | 服務名稱，用於確認打到正確的部署 |
 | `headerCreated` | 本次是否建立了標題列（`true` 表示這是第一筆報名） |
 | `row` | 寫入後的資料列數，可用於人工抽查 |
+| `email.status` | `sent` 已寄出 / `skipped` 未寄（附 `reason`）/ `failed` 失敗（附 `error`） |
+
+## 電郵確認信
+
+`emailNotify`（電郵通知）勾「需要」且 `email` 有值時，`sendConfirmationEmail_()` 會用 `MailApp` 寄一封報名確認信給報名者本人。
+
+```mermaid
+flowchart TD
+    A["sendConfirmationEmail_(headers, row)"] --> B{"電郵通知欄 = 需要？"}
+    B -->|"否"| S1["skipped: not-requested"]
+    B -->|"是"| C{"headers 含「電郵地址」欄？"}
+    C -->|"否"| S2["skipped: missing-column<br/>⚠️ 欄名不同步"]
+    C -->|"是"| D{"地址非空？"}
+    D -->|"否"| S3["skipped: no-address"]
+    D -->|"是"| E["MailApp.sendEmail()"]
+    E -->|"成功"| OK1["sent"]
+    E -->|"例外"| F1["failed（呼叫端捕捉）"]
+```
+
+設計上的三個決定：
+
+1. **寄信在 `appendRow` 之後。** 報名資料絕不能因為寄信問題而遺失，所以順序是「先落表、再寄信」，寄信失敗仍回 `ok: true`。
+2. **寄信失敗不通知前端使用者。** `submitApplication()` 只 `console.warn`，畫面照常顯示報名成功。理由是使用者看到「失敗」很可能會重填一張表單，造成重複報名。實際收信情況要看 Apps Script 執行紀錄。
+3. **信件內容寫死在後端。** `EVENT_TITLE` / `ORGANIZER_NAME` / `CONTACT_PHONE` / `CONTACT_PERSON` 是 `Code.gs` 內的常數，不從 payload 取得 —— 否則任何能打到 `/exec` 的人都能改寫寄給報名者的信件內容。
+
+需要留意的限制：
+
+- 寄件人就是這個 Apps Script 專案的執行身分（教堂的 Google 帳號），**無法自訂寄件網域**，報名者會看到該帳號地址。
+- 每日寄信額度：一般 Gmail 帳號 100 封、Gmail Workspace 1,500 封。以本活動規模綽綽有餘。
+- 欄名不同步是**靜默失敗**：`ensureHeader_()` 不會報錯（標題列本來就一致），只會導致 `skipped: missing-column`。改欄名時務必同步 `Code.gs` 的常數。
+- `gas/appsscript.json` 沒有宣告 scope，Apps Script 會在儲存或重新部署時要求授權寄信權限（`https://www.googleapis.com/auth/gmail.send`）。**必須同意**，否則 `MailApp` 會擲出例外（`failed`）。
 
 ## 失敗語意
 
@@ -166,11 +212,11 @@ flowchart TB
 {
   "ok": true,
   "service": "otc-application-form",
-  "sheet": { "name": "Sheet1", "lastRow": 12, "lastColumn": 14 }
+  "sheet": { "name": "Sheet1", "lastRow": 12, "lastColumn": 16 }
 }
 ```
 
-用來確認三件事：部署是否上線、是否正確附加在試算表上、欄位數是否為 14。若 `sheet` 變成 `{"error": "…"}`，代表綁定有問題。`lastColumn` 應等於 [schema.md](./schema.md#試算表欄位) 的欄位總數。
+用來確認三件事：部署是否上線、是否正確附加在試算表上、欄位數是否為 16。若 `sheet` 變成 `{"error": "…"}`，代表綁定有問題。`lastColumn` 應等於 [schema.md](./schema.md#試算表欄位) 的欄位總數。
 
 ## 安全限制
 
@@ -185,4 +231,5 @@ flowchart TB
 
 - 這對公開活動報名表通常可接受，但 **`/exec` 網址應視為公開資訊**，試算表不要存放敏感資料。
 - 前端在送出前不做身分驗證，因此 `Code.gs` 也無法分辨「真的有人填表」與「有人用 curl 直接打」。
+- 電郵欄位是新的曝露面：任何人都能寫入**任意電郵地址**。實務影響有限（只有勾「需要」時該地址才會收到一封確認信，收件者可以略過），但濫用者可以拿這個端點寄垃圾郵件給第三方。`MailApp` 的每日額度也會被消耗。
 - 若需要保護，唯一可靠的作法是在前端加一個共用提交碼、並在 `doPost` 內比對（`Code.gs` 的檔頭註解有說明）。
