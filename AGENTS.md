@@ -131,11 +131,28 @@ npm run preview  # 預覽 dist/
   `clasp redeploy <id>` **不帶 `-V`** 才是部署最新版本。
 - **`clasp push` 需要 `-f`。** 沒有它，clasp 會拒絕覆寫 manifest，而
   `oauthScopes` 正是我們的關鍵設定 —— 少了 `-f` 就等於沒推上去。
-- **日常部署一律執行 `gas/deploy.ps1`。** 它依序做前置檢查（`gas/` 只能有
-  `Code.gs` 一個程式檔、`scriptId` 相符、部署仍存在、`.env.production` 網址
-  相符）→ `clasp push -f` → `clasp redeploy <固定部署ID>` → 驗證部署版本是
-  最新且 `curl` 回 `ok:true`。任何一步不符就 `exit 1`，不會繼續往下部署。
+- **日常部署一律執行 `gas/deploy.ps1 -Message "<說明>"`。** 它依序做前置檢查
+  （`gas/` 只能有 `Code.gs` 一個程式檔、`scriptId` 相符、部署仍存在、
+  `.env.production` 網址相符）→ `clasp push -f` →
+  `clasp redeploy <固定部署ID> -d <說明>` → 驗證部署版本是最新、description
+  確實寫上去、且 `curl` 回 `ok:true`。任何一步不符就 `exit 1`，不會繼續往下部署。
   順序是 **改後端程式碼 → 部署並驗證 → 再 commit**，不要先 commit。
+- ⚠️ **`deploy.ps1` 的 `-Message` 是必填**，會成為 clasp deployment 的
+  `description`，也就是 **GAS 側的 commit 訊息**：格式比照 git 的 Conventional
+  Commits，但**只描述後端改動**（純前端改動不需要部署，也不需要寫在這裡）。
+  Apps Script 的 HTML 編輯畫面沒有版控，`Code.gs` 也沒有 git 歷史可查，這則
+  description 是日後唯一能回溯「這次部署改了什麼、為什麼」的線索。腳本會在部署
+  後把 description 讀回來比對，寫不上去就 `exit 1`。
+  順帶一提，Clasp 網頁版在中文介面下**完全不顯示 description**，
+  只有 `clasp list-deployments` 看得到。
+- ⚠️ **改 `deploy.ps1` 時：含中文必須存成 UTF-8 with BOM，且必須保留
+  `[Console]::OutputEncoding = [Text.Encoding]::UTF8`。** 兩個都是
+  PowerShell 5.1 的坑：
+  - 沒有 BOM 時 5.1 會用 ANSI 解讀整個檔案，中文變亂碼；若落在 here-string 裡
+    會直接變成**語法錯誤**（`相鄰字串沒有終止字元`），整支腳本跑不起來。
+  - 沒有設 `OutputEncoding` 時，`clasp`（Node CLI）的 UTF-8 stdout 會被主控台
+    碼頁解成替代字元，`ConvertFrom-Json` 隨即失敗。症狀極具欺騙性：
+    **部署其實成功了，卻在驗證步驟報錯**，看起來像部署壞掉。
 - **本專案的部署 ID 已固定，不再新增部署。** 見「後端網址」一節。
   `deploy.ps1` 把它寫成常數且永不自行建立部署；部署若消失，腳本會報錯停止，
   需在 Apps Script 編輯器手動重建後同步更新 `web/.env.production` 與腳本常數。
@@ -176,6 +193,13 @@ npm run preview  # 預覽 dist/
 - Google 不允許從 `ContentService` 自訂 `Access-Control-Allow-Origin`，也讀不到 `Origin` 標頭 → **無法限制呼叫來源**。`/exec` 網址等同公開寫入端點，試算表不要放敏感資料。
 - `Code.gs` 必須以「附加在試算表上」的方式建立，才能用 `getActiveSpreadsheet()`。部署設定：執行身分「我」、誰可以存取「任何人」，網址要拿 `/exec` 不是 `/dev`。
 - `doPost` 失敗時回 **200 + `{ok:false,error}`**，不要改成非 2xx —— Google 會把非 2xx 轉成 HTML 錯誤頁，前端就讀不到錯誤訊息了。前端 `submitApplication()` 同時檢查 `response.ok` 與 `payload.ok`。
+- ⚠️ **確認信不要放任何圖片。** `MailApp.sendEmail()` **不支援 `inlineImages`**
+  —— 那是 Gmail API `users.messages.send` 的欄位。傳進去不會被忽略，而是直接
+  拋錯：`下列引數無效：inlineImages`，**每一封信都寄不出去**。曾經用
+  `inlineImages` + `<img src="cid:...">` 內嵌成功圖示，就是這樣全滅的。
+  這個錯很難察覺：寄信失敗被刻意降級成不影響報名，所以報名照樣成功、畫面照樣
+  跳彈窗，只有當事人的信箱裡什麼都沒有。`inlineImages` 不在這個檔案裡，連同
+  base64 常數都已移除，只留下說明「為什麼不要加回來」的註解。
 
 ## GitHub Pages 部署
 

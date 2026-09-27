@@ -245,7 +245,9 @@ cp .clasp.json.example .clasp.json # 填入 scriptId
 
 ```bash
 cd "2026-09-26 - 📄 NEW PAGE - Me Time 充充電報名表/gas"
-./deploy.ps1
+./deploy.ps1 -Message "fix(gas): 移除確認信的內嵌圖片
+
+MailApp.sendEmail 不支援 inlineImages 參數，導致每封信都寄不出去。"
 ```
 
 `deploy.ps1` 依序做四件事，任何一步不符就 `exit 1`：
@@ -254,11 +256,53 @@ cd "2026-09-26 - 📄 NEW PAGE - Me Time 充充電報名表/gas"
    `scriptId` 必須等於預期的專案；部署必須仍存在於 `clasp list-deployments`；
    `web/.env.production` 的網址必須等於固定部署網址。
 2. **`clasp push -f`** — 推送 `Code.gs` 與 `appsscript.json`。
-3. **`clasp redeploy <部署ID>`** — 更新**既有**部署，`/exec` 網址不變。
-4. **驗證** — 部署版本必須等於最新版本，且 `curl` 必須回 `ok:true`、
-   `sheet.name` 非空、`lastColumn` 等於 `buildColumns()` 的欄數。
+3. **`clasp redeploy <部署ID> -d <說明>`** — 更新**既有**部署，`/exec` 網址不變。
+4. **驗證** — 部署版本必須等於最新版本、部署 description 必須等於 `-Message`，
+   且 `curl` 必須回 `ok:true`、`sheet.name` 非空、`lastColumn` 等於
+   `buildColumns()` 的欄數。
 
 只想重新部署、略過推送（例如只改了部署設定）時用 `-SkipPush`。
+
+#### `-Message`：GAS 側的 commit 訊息
+
+`-Message` 是**必填**的，它會成為該次 clasp deployment 的 `description`
+（`clasp redeploy -d`）。格式比照 git 的 Conventional Commits，但只描述
+**後端**的改動 —— 純前端的變更不需要部署，也不需要寫在這裡。
+
+```powershell
+./deploy.ps1 -Message @'
+fix(gas): 修正確認信的寄信失敗
+
+為什麼：MailApp.sendEmail 不支援 inlineImages 參數（那是 Gmail API
+users.messages.send 的欄位），每封信都因此寄不出去。寄信失敗被刻意降級成
+不影響報名，所以畫面照樣顯示成功，只有當事人的信箱裡什麼都沒有。
+'@
+```
+
+**為什麼強制要求：** Apps Script 的 HTML 編輯畫面沒有版控，
+`clasp list-deployments` 的 description 是日後唯一能回溯「這次部署改了什麼、
+為什麼」的線索。`Code.gs` 沒有 git 歷史可查，忘了就真的查不到。
+腳本會在部署後把 description 讀回來比對，寫不上去就 `exit 1` —— 避免
+「以為有記錄、其實沒有」。
+
+順帶一提，Clasp 網頁版（`script.google.com/home/projects/…/deployments`）在
+中文介面下**完全不顯示 description**，只有 `clasp list-deployments` 看得到。
+
+#### ⚠️ PowerShell 5.1 的兩個坑（`deploy.ps1` 專用）
+
+1. **含中文的 `.ps1` 必須存成 UTF-8 with BOM。** 沒有 BOM 時，Windows
+   PowerShell 5.1 會用 ANSI 解讀整個檔案，中文的位元組被解成亂碼；若剛好落在
+   here-string 裡，會直接變成**語法錯誤**（`相鄰字串沒有終止字元`）而整支腳本
+   跑不起來。
+2. **必須設 `[Console]::OutputEncoding = [Text.Encoding]::UTF8`。** `clasp` 是
+   Node CLI，stdout 一律 UTF-8；5.1 預設用主控台碼頁（本機是 Big5）解讀它，
+   中文變成替代字元，接著 `ConvertFrom-Json` 就因字串損壞而失敗。症狀極具
+   欺騙性：**部署其實成功了，卻在驗證步驟報錯**，看起來像部署壞掉。
+
+```powershell
+# 檢查 BOM 是否還在
+(Get-Content deploy.ps1 -Encoding Byte -TotalCount 3) -join ','   # 應為 239,187,191
+```
 
 #### 固定部署，不再新增
 

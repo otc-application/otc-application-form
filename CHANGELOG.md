@@ -7,6 +7,57 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-27
+
+### Added
+
+- **`gas/deploy.ps1` 新增必填的 `-Message`，作為 GAS 側的 commit 訊息。**
+  會透過 `clasp redeploy -d` 寫成該次 deployment 的 `description`，格式比照
+  git 的 Conventional Commits，但只描述**後端**改動（純前端改動不需要部署）。
+  Apps Script 的 HTML 編輯畫面沒有版控，`Code.gs` 也沒有 git 歷史可查，這則
+  description 是日後唯一能回溯「這次部署改了什麼、為什麼」的線索，所以腳本
+  會在部署後把 description 讀回來比對，寫不上去就 `exit 1`。
+  順帶一提，Clasp 網頁版在中文介面下完全不顯示 description，只有
+  `clasp list-deployments` 看得到。
+
+### Fixed
+
+- **⚠️ 修正確認信完全寄不出去（後端）。** 移除 `MailApp.sendEmail()` 的
+  `inlineImages` 參數與 `htmlBody` 裡的 `<img src="cid:...">`，並刪掉 2.5 KB
+  的 base64 圖示常數。`inlineImages` **不是 `MailApp` 的參數** —— 那是 Gmail API
+  `users.messages.send` 的欄位，傳入不會被忽略而是直接拋錯
+  （`下列引數無效：inlineImages`），導致**每一封確認信都寄不出去**。
+  症狀極具欺騙性：寄信失敗被刻意降級成不影響報名，所以報名照樣成功、畫面照樣
+  跳彈窗，只有當事人的信箱裡什麼都沒有。`Code.gs` 原處留下說明「為什麼不要加
+  回來」的註解。
+- **`deploy.ps1` 的部署版本驗證不再可能假通過。** 改以
+  `clasp list-deployments --json` 讀 `versionNumber`，不再解析表格輸出裡的
+  `@N`。舊寫法在抓不到數字時會直接回 OK，等於把「無法驗證」當成「驗證通過」——
+  那正是本專案出事時的形狀。現在讀不到版本號會明確報錯。
+- **修掉兩個會讓 `deploy.ps1` 誤判的 PowerShell 5.1 坑**：
+  - 含中文的 `.ps1` 必須存成 **UTF-8 with BOM**。沒有 BOM 時 5.1 用 ANSI 解讀
+    整個檔案，中文的位元組被解成亂碼；落在 here-string 裡會直接變成語法錯誤
+    （`相鄰字串沒有終止字元`），整支腳本跑不起來。
+  - 必須設 `[Console]::OutputEncoding = [Text.Encoding]::UTF8`。`clasp` 是
+    Node CLI，stdout 一律 UTF-8，5.1 預設用主控台碼頁（Big5）解讀它，中文變成
+    替代字元，`ConvertFrom-Json` 隨即因字串損壞而失敗。症狀極具欺騙性：
+    **部署其實成功了，卻在驗證步驟報錯**，看起來像部署壞掉。
+- **移除報名成功彈窗的「完成」鈕。** 彈窗現在只能由右上角的關閉鈕關閉：
+  `showCancelButton: false` 並擋掉點背景（`allowOutsideClick: false`）與
+  按 Esc（`allowEscapeKey: false`）。報名資料是使用者剛填完的，誤觸關掉等同
+  資料從畫面消失、只能重新填一次。
+- **按「匯出報名資料（PDF）」不再關閉彈窗。** 改用 `preConfirm` 回傳 `false`
+  攔下關閉（SweetAlert2 v11 在沒有 `input` 時仍會走 `preConfirm` 分支，回傳
+  `false` 就是不關閉）。列印視窗是同步阻塞的，使用者取消列印回到原頁時還要能
+  看到報名資料。
+- `匯出報名資料（PDF）` 按鈕加上 `p-2`。
+
+### Changed
+
+- 日常部署改為執行 `gas/deploy.ps1 -Message "<說明>"`（`-Message` 必填）。
+  `deploy.ps1` 與 `doc/api.md` 同步更新，並記錄 `-Message`、`-d` 與兩個
+  PowerShell 5.1 坑的原因。
+
 ## [0.5.0] - 2026-09-27
 
 ### Added
