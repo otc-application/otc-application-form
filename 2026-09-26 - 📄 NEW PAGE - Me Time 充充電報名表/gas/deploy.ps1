@@ -138,16 +138,6 @@ if ($LASTEXITCODE -ne 0) {
 Ok 'redeployed, URL unchanged'
 
 Step 'Verify the deployment (version + description)'
-$depRaw = clasp list-deployments --json 2>&1 | Out-String
-try {
-    $depJson = $depRaw | ConvertFrom-Json
-} catch {
-    Fail "could not parse clasp list-deployments --json:`n$($depRaw.Trim())"
-}
-$mine = $depJson | Where-Object { $_.deploymentId -eq $script:DeploymentId }
-if (-not $mine) {
-    Fail "deployment $($script:DeploymentId) is no longer in the deployment list"
-}
 
 # ⚠️ 刻意改用 --json 讀版本號，不再解析表格輸出裡的 '@N'：表格格式一改就
 # 打不出數字，而舊寫法在抓不到數字時會直接回 OK，等於把「無法驗證」當成
@@ -159,6 +149,37 @@ foreach ($line in @(clasp list-versions 2>&1)) {
         if ($n -gt $maxVer) { $maxVer = $n }
     }
 }
+if ($maxVer -le 0) {
+    Fail 'could not read the latest version number from clasp list-versions'
+}
+
+# ⚠️ 必須輪詢，不能只查一次：`clasp redeploy` 已回報成功、versions 也出現
+# 新版本之後，`list-deployments` 仍會有一小段時間回報**舊的** versionNumber
+# 與**舊的** description（API 傳播延遲）。實測過：redeploy 回報 @14、versions
+# 有 @14，但緊接著查詢仍拿到 @13 與上一次部署的 description，於是這裡誤報
+# 「新程式碼未上線」並 exit 1 —— 部署其實完全成功。症狀與「部署壞掉」一模
+# 一樣，正是最容易讓人白做一次重建的形狀。
+# 兩個欄位一起等；超過時限才當失敗（真的沒寫上 description 時仍會報錯）。
+$mine = $null
+$deadline = (Get-Date).AddSeconds(90)
+while ($true) {
+    $depRaw = clasp list-deployments --json 2>&1 | Out-String
+    try {
+        $depJson = $depRaw | ConvertFrom-Json
+    } catch {
+        Fail "could not parse clasp list-deployments --json:`n$($depRaw.Trim())"
+    }
+    $mine = $depJson | Where-Object { $_.deploymentId -eq $script:DeploymentId }
+    if (-not $mine) {
+        Fail "deployment $($script:DeploymentId) is no longer in the deployment list"
+    }
+    $descSettled = $mine.description -and (($mine.description -replace "`r`n", "`n") -eq $desc)
+    if ($mine.versionNumber -eq $maxVer -and $descSettled) { break }
+    if ((Get-Date) -gt $deadline) { break }
+    Write-Host "  ..   still reporting @$($mine.versionNumber) (latest @$maxVer), waiting for propagation"
+    Start-Sleep -Seconds 5
+}
+
 if ($null -eq $mine.versionNumber) {
     Fail 'the deployment reports no version number; it may not be running the latest code'
 }
