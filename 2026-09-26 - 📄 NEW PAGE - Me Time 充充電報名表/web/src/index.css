@@ -49,3 +49,39 @@
     @apply rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6;
   }
 }
+
+/**
+ * 列印／另存為 PDF。
+ *
+ * 只輸出 #print-area，其餘一律藏起來 —— 包含 SweetAlert2 的彈窗容器，
+ * 它是 position: fixed 加上 transform，直接列印會印出一張被置中縮小的
+ * 對話框方塊，很難看。
+ *
+ * 用 .no-print 隱藏 body 的直接子層，而不是逐一隱藏 app 根節點：SweetAlert2
+ * 是動態 append 到 body 的，寫死選擇器會漏掉它。
+ */
+#print-area {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  body > *:not(#print-area) {
+    display: none !important;
+  }
+
+  #print-area {
+    display: block;
+    color: #000;
+    font-size: 12pt;
+    line-height: 1.6;
+  }
+}
+
