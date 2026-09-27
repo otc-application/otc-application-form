@@ -7,6 +7,24 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-27
+
+### Added
+
+- **「活動資訊 → 地點」的地址連到 OpenStreetMap 地圖。** 參加者最常見的
+  疑問就是「點去」，而舊版只有文字地址，要自己複製去地圖 App 搜尋。
+  地址在活動說明區的資訊卡中間偏上位置，是找路徑的入口。
+  - URL 放在 `web/src/data/event.js` 的 `eventInfo.mapUrl`，**不硬編碼進
+    JSX**：換活動時複製資料夾只改 `data/`，版面元件不用動。
+  - 樣式沿用同一個 `infoItems` 裡既有的查詢電話連結，因此兩者視覺一致。
+  - `target="_blank"` 配 `rel="noopener noreferrer"`，並在連結內加
+    `sr-only` 的「（在地圖中開啟）」—— 讀屏軟件與鍵盤用戶才知道會開新分頁。
+  - `mapUrl` 留空時該行退回純文字。若無這個判斷，`href={undefined}` 會
+    render 成有底線、但撳不到也非 focusable 的假連結。
+  - 選 OpenStreetMap 而非 Google Maps：不經任何轉址服務，網址可直接
+    分享給參加者。`feed_prompt/Description.md` 保持純地址，所以這個網址
+    在 repo 內**只有一份**，沒有副本漂移的問題。
+
 ## [0.7.0] - 2026-09-27
 
 ### Added
