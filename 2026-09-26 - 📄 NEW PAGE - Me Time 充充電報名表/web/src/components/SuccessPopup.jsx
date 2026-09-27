@@ -38,7 +38,14 @@ function renderRows(values) {
  * 報名成功彈窗。
  *
  * 內容與成功畫面完全同源（都吃 buildSummaryRows / paymentNotice），
- * 避免兩邊日後改到不同步。底部兩個按鈕：匯出 PDF、完成。
+ * 避免兩邊日後改到不同步。
+ *
+ * ⚠️ 彈窗**只能由右上角的關閉鈕關閉**：已拿掉「完成」鈕，並擋掉點背景
+ * 與按 Esc。報名資料是使用者剛填完的，誤觸關掉等同資料從畫面消失、只能
+ * 重新填一次。`preConfirm` 回傳 false 讓「匯出 PDF」按了也不關閉彈窗 ——
+ * 列印視窗是同步阻塞的，使用者取消列印回到原頁時還要能看到報名資料。
+ * （SweetAlert2 v11 在沒有 input 時，confirm 鈕仍會走 preConfirm 分支，
+ *  回傳 false 就是「不關閉」。）
  *
  * 「匯出報名資料」走 window.print() 而不是前端產生 PDF 檔 —— 原因見
  * PrintableSummary.jsx 的說明（jsPDF 預設無法排中文字）。
@@ -62,21 +69,19 @@ export function showSuccessPopup(values) {
       </div>`,
     showConfirmButton: true,
     confirmButtonText: '匯出報名資料（PDF）',
-    showCancelButton: true,
-    cancelButtonText: '完成',
+    showCancelButton: false,
+    showCloseButton: true,
+    allowOutsideClick: false,
+    allowEscapeKey: false,
     customClass: {
       popup: 'rounded-2xl',
       confirmButton:
-        'rounded-full bg-rose-600 font-semibold shadow-none hover:bg-rose-700 focus:ring-rose-200',
-      cancelButton:
-        'rounded-full border border-stone-300 font-semibold text-stone-700 shadow-none hover:bg-stone-50',
+        'p-2 rounded-full bg-rose-600 font-semibold shadow-none hover:bg-rose-700 focus:ring-rose-200',
     },
     buttonsStyling: false,
-    reverseButtons: true,
-    allowOutsideClick: true,
-  }).then((result) => {
-    // 只有按「匯出報名資料」才跳列印；按「完成」或按空白處關閉都不要跳，
-    // 免得使用者只是想關掉視窗卻被拉進列印畫面。
-    if (result.isConfirmed) window.print()
+    preConfirm: () => {
+      window.print()
+      return false
+    },
   })
 }
