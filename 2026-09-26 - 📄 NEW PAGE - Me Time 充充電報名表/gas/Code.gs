@@ -90,6 +90,19 @@ const CONTACT_PERSON = '劉姑娘'
 const PAYMENT_NOTICE = '早鳥優惠截止 10 月 18 日前報名，一般收費截止 10 月 25 日。'
 
 /**
+ * 名額安排提示。
+ *
+ * ⚠️ 與 web/src/data/event.js 的 `quota`、`notes`、拉筋班 `highlights` 是同一句
+ *    話的另外三份副本 —— 後端拿不到前端檔案，Apps Script 也不會讀 event.js。
+ *    改名額規則時四處都要改，否則信上與畫面上的安排對不上，且不會報錯。
+ *
+ * 這段是「軟承諾」而非執行依據：實際排序仍然由人手按報名先後處理，沒有任何
+ * 程式會依它拒收或排序報名。語氣刻意用「優先考慮」而非「優先」，避免收信者
+ * 當成硬性承諾。
+ */
+const QUOTA_NOTICE = '名額有限，每堂最多 12 位，新朋友及報 4 堂或以上優先考慮。'
+
+/**
  * ⚠️ 確認信**刻意不放任何圖片**，不要再加回來。
  *
  * 曾經用 CID 內嵌成功圖示（`MailApp.sendEmail({ ..., inlineImages: [...] })`
@@ -292,6 +305,8 @@ function buildEmailText_(details) {
   lines.push('')
   lines.push('請留意：' + PAYMENT_NOTICE)
   lines.push('')
+  lines.push('名額安排：' + QUOTA_NOTICE)
+  lines.push('')
   lines.push('如需查詢請致電 ' + CONTACT_PHONE + '（' + CONTACT_PERSON + '）。')
   lines.push('')
   lines.push(ORGANIZER_NAME)
@@ -326,6 +341,10 @@ function buildEmailHtml_(details) {
     '<p style="font-size:14px;line-height:1.7;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin:20px 0 0;">' +
     '<strong>請留意：</strong>' +
     escapeHtml_(PAYMENT_NOTICE) +
+    '</p>' +
+    '<p style="font-size:14px;line-height:1.7;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin:10px 0 0;">' +
+    '<strong>名額安排：</strong>' +
+    escapeHtml_(QUOTA_NOTICE) +
     '</p>' +
     '<p style="font-size:14px;line-height:1.7;margin:20px 0 0;">如需查詢請致電 ' +
     escapeHtml_(CONTACT_PHONE) +
