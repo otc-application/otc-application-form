@@ -211,6 +211,72 @@ flowchart TD
 
 `testEmail()` **不會**被 `/exec` 呼叫到：GAS 部署為網頁應用程式時只會把 GET / POST 派發給 `doGet` / `doPost`，所以它不會變成公開的寄信入口。
 
+### 用 clasp 部署（取代手動貼程式碼）
+
+手動把 `Code.gs` 貼進編輯器有兩個問題：容易貼漏（`appsscript.json` 的
+`oauthScopes` 常常被忘記，那正是 0.4.1 寄不出信的原因），以及每次都要
+重新部署。`clasp` 可以把「推送程式碼 + 重新部署」變成兩行指令碼。
+
+#### 一次性設定
+
+```bash
+npm install -g @google/clasp      # 開發者機器只需裝一次
+clasp login                        # 開瀏覽器授權，需本人操作
+cd "2026-09-26 - 📄 NEW PAGE - Me Time 充充電報名表/gas"
+cp .clasp.json.example .clasp.json # 填入 scriptId
+```
+
+`scriptId` 從哪裡拿：Apps Script 編輯器 → **專案設定** → **指令碼 ID**
+（也會出現在編輯器網址 `https://script.google.com/d/<scriptId>/edit`）。
+
+> ⚠️ **`/exec` 網址裡的是「部署 ID」，不是「指令碼 ID」，兩者不同。**
+> `https://script.google.com/macros/s/AKfycb…/exec` 中間那段是部署 ID，
+> 拿它去填 `scriptId` 會指向錯誤的專案。只能從編輯器的專案設定取得。
+
+`.clasp.json` **放在 `gas/` 內**（不要放 repo 根目錄），因為活動資料夾名含
+空格與 emoji，根目錄版的 `rootDir` 要帶整條含 emoji 的路徑，是已知會出問題
+的組合。放在 `gas/` 內則 `rootDir` 可以省略，換活動 = 換一份 `.clasp.json`。
+
+`.clasp.json` 本身**不含憑證**（憑證存在 `~/.clasp.json`），只有 scriptId，
+所以可以 commit。但若不想讓 scriptId 進公開 repo，加入 `.gitignore`。
+
+#### 日常部署
+
+```bash
+cd "2026-09-26 - 📄 NEW PAGE - Me Time 充充電報名表/gas"
+
+clasp show-file-status              # 先看會推送什麼（強烈建議）
+clasp push -f                      # -f 覆寫 manifest，否則 oauthScopes 會被擋
+clasp deploy -i <部署ID> -d "說明"   # 重新部署**同一個**部署 → /exec 網址不變
+clasp deployments                   # 確認
+```
+
+**為什麼用 `-i` 而不是 `-V`**：`clasp deploy` 不帶 `-i` 會**建立新部署**，
+`/exec` 網址就會換掉，必須再改 `web/.env.production`、再 commit、再等
+Pages 自動部署。`clasp deploy -i <部署ID>` 是更新既有部署，網址保持不變，
+前端完全不需要跟著改。`部署ID` 就是 `/exec` 網址裡 `macros/s/` 後面那段。
+
+若想要可回滾的版本快照另外做（會換網址，謹慎使用）：
+
+```bash
+clasp create-version "說明"   # 不可變版本
+clasp versions                # 查版本
+```
+
+#### ⚠️ `clasp push` 會覆寫並刪除遠端檔案
+
+`clasp push` 是**單向覆寫**：遠端有、本機沒有的檔案會被刪除。所以在
+Apps Script 編輯器手動改過 `Code.gs`（例如把 `TEST_RECIPIENT` 換成自己的
+電郵）之後再 `clasp push`，**那個改動會被本機版本蓋掉**，
+`TEST_RECIPIENT` 會回到 placeholder。
+
+正確做法：所有後端改動都改 repo 裡的 `gas/Code.gs`，再 `clasp push`，
+不要在編輯器直接改。`clasp show-file-status` 可以在推送前確認差異。
+
+授權（OAuth consent）是綁在「專案 + 帳號」上，不綁部署，所以**授權過一次
+之後，之後的 `clasp push` / `clasp deploy` 都不需要再授權**。但改了程式碼
+仍然需要重新部署才會生效。
+
 ### 宣告的權限
 
 `gas/appsscript.json` 的 `oauthScopes` 明確宣告兩個最小權限：

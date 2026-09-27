@@ -103,6 +103,32 @@ npm run preview  # 預覽 dist/
 - SweetAlert2 內容裡用的 Tailwind class 必須是**完整字面值**，不能是字串拼出來的 —— Tailwind v4 是掃描原始碼字串來產生 CSS，拼出來的 class 不會被生成，結果就是彈窗沒樣式。
 - `web/src/lib/summary.js` 的 `escapeHtml()` 與 `gas/Code.gs` 的 `escapeHtml_()` 是兩份實作（前後端無法共用模組），改一邊時記得看另一邊。
 
+## GAS 部署（clasp）
+
+- **`/exec` 網址裡的是「部署 ID」，不是「指令碼 ID」。** 兩者不同，不能互換。
+  `https://script.google.com/macros/s/AKfycb…/exec` 中間那段是部署 ID；
+  指令碼 ID 在編輯器「專案設定」裡，或編輯器網址
+  `https://script.google.com/d/<scriptId>/edit`。**`.clasp.json` 的 `scriptId`
+  要填指令碼 ID** —— 填錯會指向另一個專案，`clasp push` 會直接覆寫它。
+- **`.clasp.json` 要放在 `gas/` 裡，不要放 repo 根目錄。** 活動資料夾名含
+  空格與 emoji，根目錄版的 `rootDir` 得帶整條含 emoji 的路徑，是已知會出問題
+  的組合。放在 `gas/` 內則 `rootDir` 可省略，換活動 = 換一份設定。
+- ⚠️ **`clasp push` 是單向覆寫：遠端有、本機沒有的檔案會被刪除。** 在
+  Apps Script 編輯器手動改過 `Code.gs`（例如把 `TEST_RECIPIENT` 換成自己的
+  電郵）之後再 push，**那個改動會被本機版本蓋掉**。後端改動一律改 repo 裡的
+  `gas/Code.gs`，不要在編輯器直接改。推送前先跑 `clasp show-file-status`。
+- **`clasp push` 需要 `-f`。** 沒有它，clasp 會拒絕覆寫 manifest，而
+  `oauthScopes` 正是我們的關鍵設定 —— 少了 `-f` 就等於沒推上去。
+- **日常部署用 `clasp deploy -i <部署ID>`，不要用 `clasp deploy -V`。**
+  不帶 `-i`（或用 `-V`）會**建立新部署**，`/exec` 網址換掉 → 必須再改
+  `web/.env.production` → 再 commit → 再等 Pages 自動部署。`deploy -i` 更新
+  既有部署，網址不變，前端不需要跟著改。
+- **OAuth 授權綁在「專案 + 帳號」，不綁部署。** 授權過一次之後，之後的
+  `clasp push` / `clasp deploy` 都不需要再授權；但改程式碼仍需重新部署才生效。
+- `clasp login` 需要瀏覽器授權，**只能由專案擁有者操作**，agent 無法代勞。
+- 換活動 = 複製活動資料夾，並改 `gas/.clasp.json` 的 `scriptId` 指向新的
+  Apps Script 專案。
+
 ## 後端網址（VITE_GAS_API_URL）
 
 

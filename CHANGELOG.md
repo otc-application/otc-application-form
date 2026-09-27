@@ -52,6 +52,17 @@
   `EMAIL_DETAIL_EXCLUDE`。新增 `escapeHtml_()`，使用者輸入不再未經逸出就
   插進 HTML（一個 `<img src=x onerror=...>` 的姓名會變成惡意郵件）。
 - 移除因改寫內文而變成死碼的 `ATTENDEE_NAME_COLUMN`、`SESSIONS_COLUMN`。
+- **新增以 `clasp` 部署後端的流程**（`doc/api.md` 新章節、`AGENTS.md` 新章節、
+  `gas/.clasp.json.example`）。目的：取代「手動把程式碼貼進 Apps Script
+  編輯器」——那個流程容易貼漏 `appsscript.json` 的 `oauthScopes`，而漏了
+  就正好是 0.4.1 寄不出確認信的原因。文件特別記錄三個坑：
+  `/exec` 網址裡是**部署 ID** 不是指令碼 ID（填錯 `scriptId` 會覆寫另一個
+  專案）、`clasp push` 需要 `-f` 才會覆寫 manifest、以及 `clasp push` 是
+  單向覆寫會刪掉遠端多餘的檔案（所以編輯器手改的 `TEST_RECIPIENT` 會被
+  蓋回 placeholder）。
+- 日常部署建議用 `clasp deploy -i <部署ID>` 而非 `clasp deploy -V`：前者更新
+  既有部署、`/exec` 網址不變，前端不必跟著改；後者會建立新部署、網址換掉，
+  必須再改 `.env.production` 並再部署一次 Pages。
 
 ## [0.4.2] - 2026-09-27
 
