@@ -7,6 +7,95 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-27
+
+### Added
+
+- **`gas/deploy.ps1`：一鍵部署後端。** 依序做前置檢查（`gas/` 只能有
+  `Code.gs` 一個程式檔、`.clasp.json` 的 `scriptId` 相符、部署仍存在於
+  `clasp list-deployments`、`web/.env.production` 網址與部署相符）→
+  `clasp push -f` → `clasp redeploy <固定部署ID>` → 驗證部署版本是最新且
+  `curl` 回 `ok:true`、`sheet.name` 非空、`lastColumn` 等於 `buildColumns()`
+  的欄數。任何一步不符即 `exit 1`，不會繼續往下部署。
+- **本專案的 GAS 部署 ID 固定**，不再建立新部署：
+  `AKfycbxeTyNNKooo3xmG3CsdpBhULnMiduMz8ozAdwQ1glai7XnBGGlN82DPwBDwbv-i1PmX`。
+  `deploy.ps1` 把它寫成常數且永不自行建立部署；`@4 - Good`
+  （`AKfycbwLzq…`）保留為不更動的備援部署。
+- `gas/.claspignore`：以白名單鎖定只推送 `Code.gs` 與 `appsscript.json`。
+- `.clasp.json` 加入 `.gitignore`（`.clasp.json.example` 仍進版控）。
+- **報名成功彈窗（SweetAlert2）**：送出成功時跳出，內容與成功畫面同源 ——
+  報名成功標題、感謝詞、**報名資料逐欄明細**、收費截止提示。底部兩個按鈕：
+  「匯出報名資料（PDF）」與「完成」。設 `reverseButtons`，讓確認鈕（匯出 PDF）
+  排在左側、取消鈕（完成）排在右側 —— 與 SweetAlert2 預設的左右相反。
+- 彈窗可按「匯出報名資料（PDF）」或空白處關閉；**只有按匯出鈕才跳列印**，
+  關閉彈窗不會誤觸發列印視窗。
+- `PrintableSummary`：專供列印／存檔的區塊，含報名成功訊息、報名資料
+  表格、收費提示與主辦單位聯絡方式。平常不顯示，僅在 `@media print`
+  生效，因此不會干擾畫面。
+
+### Fixed
+
+- **修正收費截止提示的「截止截止報名日期」重複詞**。原本把
+  `pricing[].deadline` 寫成整句（「10 月 18 日前報名」與
+  「截止報名日期 10 月 25 日」），再接在「…截止 {deadline}」後面組句子，
+  線上實際顯示的是 `一般收費截止 截止報名日期 10 月 25 日`。現在
+  `deadline` 只放**純日期**，句子改由 `event.js` 的 `paymentNotice`
+  統一組出，並在三處（成功畫面、彈窗、確認信）共用同一句。
+  描述區的收費卡片副標改為「截止 {deadline}」，同樣只出現一次「截止」。
+- 列印樣式原本會把整頁輸出成空白：列印規則是
+  `body > *:not(#print-area) { display: none }`，而 `PrintableSummary`
+  當時掛在 App 的 root 底下，root 被藏掉時列印區也跟著消失。現在改用
+  `createPortal` 把列印區掛到 `document.body` 直屬層，並加註說明原因，
+  避免日後有人把它「整理」回 App 裡。
+- **修復後端離線：報名全部寫不進試算表。** `clasp push` 把兩個內容完全相同
+  的檔案一起送上去 —— `Code.gs` 與 Apps Script 中文介面自動產生的
+  `程式碼.js`（預設檔名「程式碼」＝ Code）。兩者都在頂端宣告
+  `const SERVICE_NAME`，整個專案編譯失敗：
+  `SyntaxError: Identifier 'SERVICE_NAME' has already been declared`。
+  `doGet` 與 `doPost` 一起死掉，**前端照常顯示報名成功，但後端什麼都沒寫入**
+  —— 這是最糟的失敗型態：使用者以為報名成功，資料其實不存在。
+  修法為在本機刪掉重複檔再 `clasp push -f`（讓本機與遠端一致），
+  不在 Apps Script 編輯器手動刪檔。預防措施見 `deploy.ps1` 與
+  `gas/.claspignore`。
+
+### Changed
+
+- `web/src/lib/summary.js`：抽出 `buildSummaryRows()`，讓成功畫面、彈窗、
+  列印區三個地方的「報名資料」資料來源單一化。兒童區以多行呈現
+  （原本 `SuccessScreen` 內嵌一份，彈窗與列印區會各自漂移）。
+- 引入 `sweetalert2`（唯一新增的 runtime 依賴）。
+- 確認信內容改為與畫面「報名成功」一致：加上成功圖示、報名資料逐欄明細、
+  收費截止提示，並改用 `【活動名】報名成功` 為主旨。
+- 確認信改為 CID 內嵌成功圖示（base64 PNG）。不用外部圖片網址，因為郵件
+  客戶端預設會擋掉遠端圖片，會顯示破圖。
+- 確認信同時提供 `htmlBody` 與純文字 `body`（降級備援）。
+- `gas/Code.gs`：寄信明細改為走訪標題列產生（`buildEmailDetails_()`），
+  schema 加欄位時確認信自動跟著多一列；略過欄位集中列在
+  `EMAIL_DETAIL_EXCLUDE`。新增 `escapeHtml_()`，使用者輸入不再未經逸出就
+  插進 HTML（一個 `<img src=x onerror=...>` 的姓名會變成惡意郵件）。
+- 移除因改寫內文而變成死碼的 `ATTENDEE_NAME_COLUMN`、`SESSIONS_COLUMN`。
+- **新增以 `clasp` 部署後端的流程**（`doc/api.md` 新章節、`AGENTS.md` 新章節、
+  `gas/.clasp.json.example`）。目的：取代「手動把程式碼貼進 Apps Script
+  編輯器」——那個流程容易貼漏 `appsscript.json` 的 `oauthScopes`，而漏了
+  就正好是 0.4.1 寄不出確認信的原因。文件特別記錄三個坑：
+  `/exec` 網址裡是**部署 ID** 不是指令碼 ID（填錯 `scriptId` 會覆寫另一個
+  專案）、`clasp push` 需要 `-f` 才會覆寫 manifest、以及 `clasp push` 是
+  單向覆寫會刪掉遠端多餘的檔案（所以編輯器手改的 `TEST_RECIPIENT` 會被
+  蓋回 placeholder）。
+- 日常部署改為執行 `gas/deploy.ps1`，**不再**直接呼叫 `clasp deploy`。
+  特別記錄兩個會整個弄壞線上部署的坑：
+  - **`clasp deploy -V <版本> -i <部署ID>` 會永久刪掉該部署。**
+    `clasp deploy` 是 `create-deployment` 的別名，帶 `-i` 去更新既有部署是
+    未經文件支援的組合。實測之後 `clasp redeploy` 回
+    `Requested entity was not found`、`/exec` 回 404、該 ID 從
+    `clasp list-deployments` 消失。要更新既有部署只能用
+    `clasp redeploy <部署ID>`。
+  - **`-V` 會把部署釘死在該版本**，之後 push 的新碼永遠不會上線且沒有錯誤。
+    實測：部署在 `@6`、最新版本 `@10`，下 `-V 6` 就永久停在舊碼。
+    `redeploy` **不帶 `-V`** 才是部署最新版本。
+- **`clasp show-file-status` 的輸出必須在 push 之前讀。** 本次事故中它事前
+  就列出了第三個檔案 `程式碼.js`，事後才看已經來不及。
+
 ## [0.4.2] - 2026-09-27
 
 ### Fixed

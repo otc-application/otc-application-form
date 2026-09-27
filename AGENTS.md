@@ -87,12 +87,88 @@ npm run preview  # 預覽 dist/
 - 本機 Node v24、CI Node 20 — 依賴版本要挑兩者都跑得過的。
 - `npm install` 會因 npm 11 的 `allow-scripts` 擋下 esbuild 的 postinstall，需 `npm approve-scripts esbuild`，否則 vite 無法啟動。
 
+## 文案與內容的踩雷點
+
+- **`pricing[].deadline` 只放純日期**（`10 月 18 日`），**絕對不要塞整句**。這兩句會被接在「…截止 {deadline}」後面組句子，一旦裡面自帶「前報名」或「截止報名日期」，就會組出「一般收費截止 截止報名日期 10 月 25 日」這種重複詞。這個錯誤實際上線過，畫面上的收費提示就是錯的。
+- **收費提示有三個地方要顯示**（成功畫面、報名成功彈窗、確認信），所以由 `web/src/data/event.js` 的 `paymentNotice` 統一組出，不要各寫各的。
+- ⚠️ **`event.js` 的 `paymentNotice` 與 `gas/Code.gs` 的 `PAYMENT_NOTICE` 是兩份獨立副本** —— Apps Script 讀不到前端的檔案。改收費日期／文案時**兩個檔案都要改**，這個不一致不會讓任何程式報錯，只是信上與畫面上的日期不同。
+- 「報名資料」清單由 `web/src/lib/summary.js` 的 `buildSummaryRows()` 組出，成功畫面、彈窗、列印區三處共用。不要在某個元件裡自己從 `values` 拼一份，會漂移。
+
+## 報名成功彈窗與 PDF 匯出
+
+- **PDF 匯出走 `window.print()`，不要在前端用 jsPDF 生檔。** jsPDF 內建字型只含 Latin-1，**中文字會全部變成空白方塊**；要修就得內嵌 CJK 字型檔（5～10 MB base64，會把 bundle 撐大一個數量級）。瀏覽器「另存為 PDF」本來就用系統 CJK 字型排版，結果正確、代價只是多按一下。`PrintableSummary.jsx` 檔頭有說明，不要「順手」換成 jsPDF。
+- ⚠️ **`PrintableSummary` 必須用 `createPortal` 掛在 `document.body` 直屬層。** 列印規則是 `body > *:not(#print-area) { display: none !important }`，而 App 的 root 是 body 的直接子層 —— root 被藏掉時，放在 root 裡的列印區會跟著消失，**結果是「按了匯出，PDF 全白」且沒有任何錯誤**。不要為了「整理結構」把它移回 App 裡。
+- 列印樣式要連 **SweetAlert2 的容器一起藏**：它是動態 append 到 `body` 的，用 `body > *:not(#print-area)` 才蓋得住。直接印彈窗會印出一張被置中縮小的對話框。
+- **SweetAlert2 的 `htmlContent` 不會消毒**，等於 `innerHTML`。使用者輸入（姓名、電話、電郵）必須經 `escapeHtml_()`（GAS）/`escapeHtml()`（`summary.js`）才插進去。雖然是自己填自己看，危害有限，但漏掉就是個真實的 XSS sink。
+- SweetAlert2 內容裡用的 Tailwind class 必須是**完整字面值**，不能是字串拼出來的 —— Tailwind v4 是掃描原始碼字串來產生 CSS，拼出來的 class 不會被生成，結果就是彈窗沒樣式。
+- `web/src/lib/summary.js` 的 `escapeHtml()` 與 `gas/Code.gs` 的 `escapeHtml_()` 是兩份實作（前後端無法共用模組），改一邊時記得看另一邊。
+
+## GAS 部署（clasp）
+
+- **`/exec` 網址裡的是「部署 ID」，不是「指令碼 ID」。** 兩者不同，不能互換。
+  `https://script.google.com/macros/s/AKfycb…/exec` 中間那段是部署 ID；
+  指令碼 ID 在編輯器「專案設定」裡，或編輯器網址
+  `https://script.google.com/d/<scriptId>/edit`。**`.clasp.json` 的 `scriptId`
+  要填指令碼 ID** —— 填錯會指向另一個專案，`clasp push` 會直接覆寫它。
+- **`.clasp.json` 要放在 `gas/` 裡，不要放 repo 根目錄。** 活動資料夾名含
+  空格與 emoji，根目錄版的 `rootDir` 得帶整條含 emoji 的路徑，是已知會出問題
+  的組合。放在 `gas/` 內則 `rootDir` 可省略，換活動 = 換一份設定。
+- ⚠️ **`clasp show-file-status` 的輸出必須在 push 之前讀。** 曾經它列出第三個
+  檔案 `程式碼.js`（Apps Script 中文介面的預設檔名「程式碼」＝ Code，內容與
+  `Code.gs` 完全相同），`clasp push` 把兩份都送上去 →
+  `SyntaxError: Identifier 'SERVICE_NAME' has already been declared`，
+  整個專案編譯失敗，`doGet` 與 `doPost` 一起死掉，**畫面照常顯示報名成功
+  但後端什麼都沒寫入**。`deploy.ps1` 與 `gas/.claspignore` 現在都會擋下這種情況。
+  若真的發生了，在**本機**刪掉重複檔再 push，不要在編輯器手動刪。
+- ⚠️ **絕對不要用 `clasp deploy -V <版本> -i <部署ID>`。** `clasp deploy` 是
+  `create-deployment` 的別名，帶 `-i` 去更新既有部署是未經文件支援的組合，
+  **實測永久刪掉了原本的部署**（之後 `clasp redeploy` 回
+  `Requested entity was not found`，`/exec` 回 404）。
+  要更新既有部署請用 `clasp redeploy <部署ID>`。
+- **絕對不要用 `-V` 部署到固定版本**（含 `clasp redeploy <id> -V <版本>`）。
+  會把部署釘死在該版本，之後 push 的新碼永遠不會上線，且沒有任何錯誤。
+  實測：部署在 `@6`、最新版本 `@10`，下 `-V 6` 就永久停在舊碼。
+  `clasp redeploy <id>` **不帶 `-V`** 才是部署最新版本。
+- **`clasp push` 需要 `-f`。** 沒有它，clasp 會拒絕覆寫 manifest，而
+  `oauthScopes` 正是我們的關鍵設定 —— 少了 `-f` 就等於沒推上去。
+- **日常部署一律執行 `gas/deploy.ps1`。** 它依序做前置檢查（`gas/` 只能有
+  `Code.gs` 一個程式檔、`scriptId` 相符、部署仍存在、`.env.production` 網址
+  相符）→ `clasp push -f` → `clasp redeploy <固定部署ID>` → 驗證部署版本是
+  最新且 `curl` 回 `ok:true`。任何一步不符就 `exit 1`，不會繼續往下部署。
+  順序是 **改後端程式碼 → 部署並驗證 → 再 commit**，不要先 commit。
+- **本專案的部署 ID 已固定，不再新增部署。** 見「後端網址」一節。
+  `deploy.ps1` 把它寫成常數且永不自行建立部署；部署若消失，腳本會報錯停止，
+  需在 Apps Script 編輯器手動重建後同步更新 `web/.env.production` 與腳本常數。
+- **`deploy.ps1` 只在本機跑**，不能放進 CI：`clasp` 的 OAuth 需要瀏覽器授權，
+  GitHub Actions 拿不到。Pages workflow 只負責前端。
+- **`clasp push` 是單向覆寫：遠端有、本機沒有的檔案會被刪除。** 在
+  Apps Script 編輯器手動改過 `Code.gs`（例如把 `TEST_RECIPIENT` 換成自己的
+  電郵）之後再 push，**那個改動會被本機版本蓋掉**。後端改動一律改 repo 裡的
+  `gas/Code.gs`，不要在編輯器直接改。
+- **OAuth 授權綁在「專案 + 帳號」，不綁部署。** 授權過一次之後，之後的
+  `clasp push` / `clasp deploy` 都不需要再授權；但改程式碼仍需重新部署才生效。
+- `clasp login` 需要瀏覽器授權，**只能由專案擁有者操作**，agent 無法代勞。
+- 換活動 = 複製活動資料夾，並改 `gas/.clasp.json` 的 `scriptId` 指向新的
+  Apps Script 專案。**部署 ID 也會變**，要同步更新 `deploy.ps1` 的常數與
+  `web/.env.production`。`.clasp.json` 已 gitignore，範本 `.clasp.json.example`
+  仍進版控。
+
 ## 後端網址（VITE_GAS_API_URL）
 
+- **本專案的 GAS 部署 ID 已固定，永遠使用這一個**：
+
+  ```
+  https://script.google.com/macros/s/AKfycbxeTyNNKooo3xmG3CsdpBhULnMiduMz8ozAdwQ1glai7XnBGGlN82DPwBDwbv-i1PmX/exec
+  ```
+
+  改後端程式碼時**不需要**動 `web/.env.production`；`deploy.ps1` 會檢查兩者
+  一致，不一致就中止。`@4 - Good`（`AKfycbwLzq…`）保留為不更動的備援部署。
 - 後端網址在**建置時**由 Vite 內嵌，沒有 runtime 設定。改了網址必須讓新的建置跑一次。
 - 兩層來源（Vite 載入順序，後者優先）：`web/.env.production`（**已 commit**，正式建置用）→ `web/.env.local`（gitignored，本機覆寫用）。`npm run dev` 只讀 `.env` / `.env.local`，**不讀** `.env.production`。
 - 漏掉 `.env.production` 的後果：CI 建置出來的 bundle 沒有網址 → 線上表單顯示「網上報名暫未開放」且送出鈕停用。症狀不會出現在本機，因為本機通常有 `.env.local`。
 - `web/.env.production` 內含 GAS `/exec` 網址，**可以 commit**：該網址不是密碼，瀏覽器必須知道才能呼叫，本來就會出現在公開的 bundle 中。不可放真正的憑證或金鑰。
+- ⚠️ **試算表是動態的、部署 ID 不是。** 換試算表仍要問使用者（見快速開始一節）；
+  但部署 ID 已固定，不要因為換試算表就改 `web/.env.production`。
 
 ## GAS 後端踩雷點
 

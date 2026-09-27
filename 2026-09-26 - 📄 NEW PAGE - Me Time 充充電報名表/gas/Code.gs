@@ -66,10 +66,6 @@ const EMAIL_NOTIFY_COLUMN = '電郵通知'
 const EMAIL_ADDRESS_COLUMN = '電郵地址'
 const EMAIL_CONSENT_YES = '需要'
 
-/** 確認信內文需要的欄位名，與 formSchema 的 column 對應。 */
-const ATTENDEE_NAME_COLUMN = '參加者姓名'
-const SESSIONS_COLUMN = '本人參加'
-
 /**
  * 確認信的活動資訊。
  * ⚠️ 後端拿不到前端的 event.js，所以這些值在此重複維護一份。
@@ -80,6 +76,34 @@ const EVENT_TITLE = 'Me Time 充充電報名表'
 const ORGANIZER_NAME = '基督教宣道會愛荃堂'
 const CONTACT_PHONE = '24114170'
 const CONTACT_PERSON = '劉姑娘'
+
+/**
+ * 收費截止提示。
+ *
+ * ⚠️ 這是 web/src/data/event.js 裡 paymentNotice 的**另一份副本** —— Apps
+ *    Script 讀不到前端的檔案。改收費日期時兩個檔案都要改。
+ *
+ * 保持「pricing[].deadline 只放純日期」的規則：這裡直接寫完整句子，句子裡
+ * 就只出現一次「截止」。之前把「截止報名日期 10 月 25 日」整句塞進 deadline
+ * 再接在「截止」後面，會變成「截止截止報名日期 10 月 25 日」。
+ */
+const PAYMENT_NOTICE = '早鳥優惠截止 10 月 18 日前報名，一般收費截止 10 月 25 日。'
+
+/**
+ * 報名成功圖示（inline base64 PNG），以 CID 內嵌。
+ *
+ * 為什麼不用外部圖片網址：郵件客戶端預設會擋掉遠端圖片（預設不顯示，QQ
+ * 郵件、Outlook 桌面版尤其明顯），寄出去會看到一個破圖。內嵌 CID 附件是
+ * 唯一在各家客戶端都穩定的做法 —— GAS 沒有檔案系統，所以圖片必須放在
+ * 這裡當 base64。
+ *
+ * 這是刻意生成的扁平色小圖（96×96、1.9 KB），不是照片：扁平色 PNG 壓得
+ * 極小，base64 只佔約 2.5 KB，不會讓 Code.gs 失控。
+ */
+const SUCCESS_ICON_CID = 'otc-success-icon'
+const SUCCESS_ICON_BASE64 =
+  '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'
+
 
 /** 部署後可用瀏覽器直接開啟 /exec 確認服務是否上線。 */
 function doGet() {
@@ -211,32 +235,134 @@ function sendConfirmationEmail_(headers, row) {
   var recipient = pickCell_(headers, row, EMAIL_ADDRESS_COLUMN)
   if (!recipient) return { status: 'skipped', reason: 'no-address' }
 
-  var attendee = pickCell_(headers, row, ATTENDEE_NAME_COLUMN)
-  var sessions = pickCell_(headers, row, SESSIONS_COLUMN)
+  var details = buildEmailDetails_(headers, row)
+  var body = buildEmailText_(details)
+  var html = buildEmailHtml_(details)
 
   MailApp.sendEmail({
     to: recipient,
-    subject: '【' + EVENT_TITLE + '】已收到您的報名',
-    body: [
-      attendee + ' 您好：',
-      '',
-      '已收到您「' + EVENT_TITLE + '」的報名。',
-      '',
-      '・參加者姓名：' + attendee,
-      '・參加場次：' + sessions,
-      '',
-      '我們會以電話聯絡確認報名詳情，如需查詢請致電 ' +
-        CONTACT_PHONE +
-        '（' +
-        CONTACT_PERSON +
-        '）。',
-      '',
-      ORGANIZER_NAME,
-    ].join('\n'),
+    subject: '【' + EVENT_TITLE + '】報名成功',
+    body: body,
+    htmlBody: html,
+    inlineImages: [
+      {
+        imageBlob: Utilities.newBlob(
+          Utilities.base64Decode(SUCCESS_ICON_BASE64),
+          'image/png',
+          'success.png'
+        ),
+        mimeType: 'image/png',
+        filename: 'success.png',
+        contentId: SUCCESS_ICON_CID,
+      },
+    ],
   })
 
   return { status: 'sent', to: recipient }
 }
+
+/**
+ * 從標題列與該列資料組出「報名資料」清單。
+ *
+ * 刻意**不**逐一 hardcode 欄位名，而是走訪標題列：這樣 schema 加欄位時
+ * 確認信會自動跟著多一列，不會靜悄悄漏掉。（反面：不會列入的欄位就不會
+ * 出現在信上，所以要略過的欄位必須在這裡明確排除。）
+ *
+ * 略過：提交時間（收信當下就是同一件事，純雜訊）、電郵通知與電郵地址
+ * （收件人自己就是這個地址，寫在信上只會洩漏到寄件過程的記錄裡）。
+ */
+var EMAIL_DETAIL_EXCLUDE = ['提交時間', EMAIL_NOTIFY_COLUMN, EMAIL_ADDRESS_COLUMN]
+
+function buildEmailDetails_(headers, row) {
+  var details = []
+  for (var i = 0; i < headers.length; i += 1) {
+    var label = headers[i]
+    if (EMAIL_DETAIL_EXCLUDE.indexOf(label) !== -1) continue
+    var value = row[i]
+    if (value === '' || value === null || value === undefined) continue
+    details.push({ label: label, value: String(value) })
+  }
+  return details
+}
+
+function buildEmailText_(details) {
+  var lines = [
+    '報名成功！',
+    '感謝您報名「' + EVENT_TITLE + '」。我們會以電話聯絡確認，請留意來電。',
+    '',
+    '報名資料',
+  ]
+  for (var i = 0; i < details.length; i += 1) {
+    lines.push('・' + details[i].label + '：' + details[i].value)
+  }
+  lines.push('')
+  lines.push('請留意：' + PAYMENT_NOTICE)
+  lines.push('')
+  lines.push('如需查詢請致電 ' + CONTACT_PHONE + '（' + CONTACT_PERSON + '）。')
+  lines.push('')
+  lines.push(ORGANIZER_NAME)
+  return lines.join('\n')
+}
+
+/** HTML 內文：郵件客戶端會優先顯示這個，純文字 body 當降級備援。 */
+function buildEmailHtml_(details) {
+  var rows = ''
+  for (var i = 0; i < details.length; i += 1) {
+    rows +=
+      '<tr>' +
+      '<td style="padding:6px 12px 6px 0;color:#78716c;font-size:14px;white-space:nowrap;vertical-align:top;">' +
+      escapeHtml_(details[i].label) +
+      '</td>' +
+      '<td style="padding:6px 0;color:#1c1917;font-size:14px;vertical-align:top;">' +
+      escapeHtml_(details[i].value) +
+      '</td>' +
+      '</tr>'
+  }
+
+  return (
+    '<div style="font-family:\'Noto Sans TC\',\'PingFang TC\',\'Microsoft JhengHei\',sans-serif;color:#1c1917;max-width:520px;">' +
+    '<img src="cid:' +
+    SUCCESS_ICON_CID +
+    '" width="56" height="56" alt="報名成功" style="display:block;border:0;">' +
+    '<h1 style="font-size:20px;margin:12px 0 0;">報名成功！</h1>' +
+    '<p style="font-size:15px;line-height:1.7;margin:8px 0 0;">感謝您報名<span style="font-weight:600;color:#e11d48;text-decoration:underline;">「' +
+    escapeHtml_(EVENT_TITLE) +
+    '」</span>。我們會以電話聯絡確認，請留意來電。</p>' +
+    '<h2 style="font-size:14px;letter-spacing:.05em;color:#78716c;margin:24px 0 0;">報名資料</h2>' +
+    '<table style="border-collapse:collapse;width:100%;margin-top:4px;">' +
+    rows +
+    '</table>' +
+    '<p style="font-size:14px;line-height:1.7;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin:20px 0 0;">' +
+    '<strong>請留意：</strong>' +
+    escapeHtml_(PAYMENT_NOTICE) +
+    '</p>' +
+    '<p style="font-size:14px;line-height:1.7;margin:20px 0 0;">如需查詢請致電 ' +
+    escapeHtml_(CONTACT_PHONE) +
+    '（' +
+    escapeHtml_(CONTACT_PERSON) +
+    '）。</p>' +
+    '<p style="font-size:13px;color:#78716c;margin:16px 0 0;">' +
+    escapeHtml_(ORGANIZER_NAME) +
+    '</p>' +
+    '</div>'
+  )
+}
+
+/**
+ * HTML 逸出。
+ *
+ * 寄信內容全部走 innerHTML 組字串，姓名／電話／電郵是使用者輸入，不能直接
+ * 插進去 —— 一個叫 `<img onerror=...>` 的姓名就會變成寄給自己的惡意郵件。
+ */
+function escapeHtml_(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 
 function parseBody_(e) {
   if (!e || !e.postData || !e.postData.contents) {

@@ -7,6 +7,10 @@ dist/
 .env.local
 .env.*.local
 
+# clasp 專案設定（含 scriptId，換活動才會變，不進版控）
+.clasp.json
+!.clasp.json.example
+
 # 編輯器 / 作業系統
 .DS_Store
 Thumbs.db

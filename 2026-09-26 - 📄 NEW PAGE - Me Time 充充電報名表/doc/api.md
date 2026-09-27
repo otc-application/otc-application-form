@@ -137,6 +137,24 @@ sequenceDiagram
 
 `emailNotify`（電郵通知）勾「需要」且 `email` 有值時，`sendConfirmationEmail_()` 會用 `MailApp` 寄一封報名確認信給報名者本人。
 
+內文與畫面上的「報名成功」一致，包含：成功圖示、報名成功訊息、**報名資料
+逐欄明細**、收費截止提示、查詢電話。
+
+- 明細由 `buildEmailDetails_()` **走訪標題列**產生，不是逐一 hardcode 欄位，
+  所以 `formSchema.js` 加欄位時確認信會自動跟著多一列。要略過的欄位寫在
+  `EMAIL_DETAIL_EXCLUDE`：目前是 `提交時間`（與收信當下重複）、`電郵通知`
+  與 `電郵地址`（收件人就是那個地址，寫在信上只會多一份副本）。
+- 成功圖示是 **CID 內嵌**的 base64 PNG（`SUCCESS_ICON_BASE64`）。不要改成
+  外部圖片網址 —— 郵件客戶端預設擋遠端圖片，會變成破圖。GAS 沒有檔案系統，
+  所以圖片只能放在 `Code.gs` 裡。
+- 同時提供 `body`（純文字）與 `htmlBody`（HTML）。多數客戶端顯示 `htmlBody`，
+  純文字是給不支援 HTML 的客戶端降級用。
+- 所有使用者輸入都經過 `escapeHtml_()` 才插進 HTML。姓名欄若不逸出，
+  一個叫 `<img src=x onerror=...>` 的姓名就會變成寄給自己的惡意郵件。
+- 收費提示是 `Code.gs` 裡的 `PAYMENT_NOTICE`，**與
+  `web/src/data/event.js` 的 `paymentNotice` 是兩份獨立副本**（Apps Script
+  讀不到前端檔案）。改收費日期時兩個都要改。
+
 ```mermaid
 flowchart TD
     A["sendConfirmationEmail_(headers, row)"] --> B{"電郵通知欄 = 需要？"}
@@ -192,6 +210,126 @@ flowchart TD
 5. **重新部署**（部署 → 管理部署 → 編輯 → 版本：新增版本 → 部署）。只授權不重新部署，Web App 仍會以舊的權限身分執行 `doPost`。
 
 `testEmail()` **不會**被 `/exec` 呼叫到：GAS 部署為網頁應用程式時只會把 GET / POST 派發給 `doGet` / `doPost`，所以它不會變成公開的寄信入口。
+
+### 用 clasp 部署（取代手動貼程式碼）
+
+手動把 `Code.gs` 貼進編輯器有兩個問題：容易貼漏（`appsscript.json` 的
+`oauthScopes` 常常被忘記，那正是 0.4.1 寄不出信的原因），以及每次都要
+重新部署。`clasp` 可以把「推送程式碼 + 重新部署」變成兩行指令碼。
+
+#### 一次性設定
+
+```bash
+npm install -g @google/clasp      # 開發者機器只需裝一次
+clasp login                        # 開瀏覽器授權，需本人操作
+cd "2026-09-26 - 📄 NEW PAGE - Me Time 充充電報名表/gas"
+cp .clasp.json.example .clasp.json # 填入 scriptId
+```
+
+`scriptId` 從哪裡拿：Apps Script 編輯器 → **專案設定** → **指令碼 ID**
+（也會出現在編輯器網址 `https://script.google.com/d/<scriptId>/edit`）。
+
+> ⚠️ **`/exec` 網址裡的是「部署 ID」，不是「指令碼 ID」，兩者不同。**
+> `https://script.google.com/macros/s/AKfycb…/exec` 中間那段是部署 ID，
+> 拿它去填 `scriptId` 會指向錯誤的專案。只能從編輯器的專案設定取得。
+
+`.clasp.json` **放在 `gas/` 內**（不要放 repo 根目錄），因為活動資料夾名含
+空格與 emoji，根目錄版的 `rootDir` 要帶整條含 emoji 的路徑，是已知會出問題
+的組合。放在 `gas/` 內則 `rootDir` 可以省略，換活動 = 換一份 `.clasp.json`。
+
+`.clasp.json` 本身**不含憑證**（憑證存在 `%USERPROFILE%\.clasprc.json`），
+只有 scriptId 與 rootDir。本 repo 已把它加入 `.gitignore`（`.clasp.json.example`
+仍進版控作為範本），換活動時複製範本填入新的 scriptId。
+
+#### 日常部署：一支腳本
+
+```bash
+cd "2026-09-26 - 📄 NEW PAGE - Me Time 充充電報名表/gas"
+./deploy.ps1
+```
+
+`deploy.ps1` 依序做四件事，任何一步不符就 `exit 1`：
+
+1. **前置檢查** — `gas/` 必須只有 `Code.gs` 一個程式檔；`.clasp.json` 的
+   `scriptId` 必須等於預期的專案；部署必須仍存在於 `clasp list-deployments`；
+   `web/.env.production` 的網址必須等於固定部署網址。
+2. **`clasp push -f`** — 推送 `Code.gs` 與 `appsscript.json`。
+3. **`clasp redeploy <部署ID>`** — 更新**既有**部署，`/exec` 網址不變。
+4. **驗證** — 部署版本必須等於最新版本，且 `curl` 必須回 `ok:true`、
+   `sheet.name` 非空、`lastColumn` 等於 `buildColumns()` 的欄數。
+
+只想重新部署、略過推送（例如只改了部署設定）時用 `-SkipPush`。
+
+#### 固定部署，不再新增
+
+本專案的部署 ID 已固定，**不再建立新的部署**：
+
+```
+AKfycbxeTyNNKooo3xmG3CsdpBhULnMiduMz8ozAdwQ1glai7XnBGGlN82DPwBDwbv-i1PmX
+```
+
+`deploy.ps1` 把它寫在常數裡，**永遠不會自行建立部署**。若這個部署消失，
+腳本會直接報錯停止 —— 請在 Apps Script 編輯器手動重建部署，再同步更新
+`web/.env.production` 與 `deploy.ps1` 的常數。`@4 - Good`
+（`AKfycbwLzq…`）保留為不更動的備援部署。
+
+#### ⚠️ 絕對不要用 `-V` 部署到固定版本
+
+`clasp redeploy <id> -V <版本>` 會把部署**釘死在該版本**，之後每次 push 的
+新程式碼都不會上線，而且沒有任何錯誤。實測：目標部署當時在 `@6`、最新版本
+是 `@10`，若下 `redeploy -V 6` 就會永遠停在舊碼。
+
+`clasp redeploy <id>` **不帶 `-V`** 才是「部署最新版本」，也是 `deploy.ps1`
+的行為。`clasp --help` 對 `redeploy` 的說明是 "Updates a deployment for a
+project to a **new** version" —— 新的，不是任選某個舊的。
+
+同理**不要**用 `clasp deploy -V <版本> -i <部署ID>`。`clasp deploy` 是
+`create-deployment` 的別名，帶上 `-i` 去更新既有部署是未經文件支援的組合。
+本次事故就是這樣**永久刪掉了原本的部署**（詳見下方事故記錄）。
+
+#### 🔴 事故記錄：重複檔案讓整個專案編譯失敗
+
+`clasp show-file-status` 曾列出第三個檔案 `程式碼.js` —— 那是 Apps Script
+在中文介面自動產生的預設檔名（「程式碼」＝ Code），內容與 `Code.gs`
+**完全相同**。`clasp push` 把兩份都送上去之後：
+
+```
+SyntaxError: Identifier 'SERVICE_NAME' has already been declared
+```
+
+兩個檔案都在頂端宣告 `const SERVICE_NAME`，整個專案編譯失敗，`doGet` 與
+`doPost` 一起死掉，**畫面照常顯示報名成功但後端什麼都沒寫入**。
+
+**教訓：`clasp show-file-status` 的輸出必須在 push 之前讀**，不能 push 完才看。
+現在由兩道機制擋住：
+
+- `deploy.ps1` 開頭就檢查 `gas/` 只能有 `Code.gs` 一個程式檔，多一個就中止。
+- `gas/.claspignore` 以白名單鎖定只推送 `Code.gs` 與 `appsscript.json`。
+
+若真的發生了，正確修法是**在本機**刪掉重複檔再 `clasp push -f`（讓本機與
+遠端一致），**不要**在 Apps Script 編輯器裡手動刪檔 —— 那會讓本機與遠端
+再次分歧，下一次 push 又會把它送回去。
+
+#### ⚠️ `clasp push` 會覆寫並刪除遠端檔案
+
+`clasp push` 是**單向覆寫**：遠端有、本機沒有的檔案會被刪除。所以在
+Apps Script 編輯器手動改過 `Code.gs`（例如把 `TEST_RECIPIENT` 換成自己的
+電郵）之後再 `clasp push`，**那個改動會被本機版本蓋掉**，
+`TEST_RECIPIENT` 會回到 placeholder。
+
+正確做法：所有後端改動都改 repo 裡的 `gas/Code.gs`，再 `clasp push`，
+不要在編輯器直接改。`clasp show-file-status` 可以在推送前確認差異。
+
+授權（OAuth consent）是綁在「專案 + 帳號」上，不綁部署，所以**授權過一次
+之後，之後的 `clasp push` / `clasp deploy` 都不需要再授權**。但改了程式碼
+仍然需要重新部署才會生效。
+
+#### 自動化不含在 CI
+
+`deploy.ps1` 只能在本機跑：`clasp` 的 OAuth 需要瀏覽器授權，GitHub Actions
+拿不到。`.github/workflows/deploy_github_pages.yml` 只負責前端。
+**GAS 部署 → 驗證 → 再 commit**，順序不要顛倒：先確定後端活著，再把網址
+進版控。
 
 ### 宣告的權限
 
