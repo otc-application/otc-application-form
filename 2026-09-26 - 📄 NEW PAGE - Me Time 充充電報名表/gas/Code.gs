@@ -16,6 +16,17 @@
  *
  * ⚠️ 改過 formSchema.js 的欄位之後，**必須清空目標試算表或重建標題列**，
  *    否則 ensureHeader_() 會逐欄比對發現順序不符而拒絕寫入。
+ *    標題列由程式自動保護（見 unprotectHeader_()），所以「選取全部 → 清除內容」
+ *    這種清空方式**不會**卡在權限上，重建流程照跑。
+ *
+ * ── 並行寫入 ──────────────────────────────────────────────────────────
+ * 落表全程用 LockService 序列化（見 writeRow_）。要解決的是 appendRow 的
+ * 競態：兩個並行執行若都讀到同一個 lastRow，會寫進同一橫，其中一筆報名**靜靜
+ * 消失但回應仍是 ok:true**。鎖取不到時回 200 + {ok:false, code:"BUSY"}，
+ * 前端會自動重試一次（BUSY 一定發生在寫入之前，所以重試不會產生重複列）。
+ *
+ * ⚠️ 鎖只包「讀標題列 → append 一列」，**寄信在鎖外**；用 tryLock 而非
+ *    waitLock。改這段之前先讀 writeRow_() 的註解。
  *
  * ── 寄信 ────────────────────────────────────────────────────────────
  * 確認信用 MailApp 寄出，寄件人就是這個專案的執行身分（教堂的 Google 帳號），
@@ -56,6 +67,34 @@
 
 /** 服務名稱，僅用於 doGet 的自我診斷回應。 */
 const SERVICE_NAME = 'otc-application-form'
+
+/**
+ * 落表互斥鎖（LockService）的等待時限，單位毫秒。
+ *
+ * 鎖只包住「讀標題列 → append 一列」，實際只需幾百毫秒，10 秒已經極寬鬆。
+ * 之所以要一個上限而不是無限等：見下。
+ *
+ * ⚠️ 刻意用 `tryLock()` 而**不是** `waitLock()`。waitLock 會一直等到鎖被釋放，
+ *    一旦有執行卡死（試算表 API 逾時、MailApp 慢），之後**所有**報名都會堆在
+ *    這裡逾時，變成「為了防撞車而製造新故障」。取不到鎖就回暫時性錯誤，
+ *    讓前端自己重試，見 BUSY_CODE。
+ */
+const LOCK_TIMEOUT_MS = 10000
+
+/**
+ * 取不到落表鎖時回報的代碼，供前端判斷「可以安全重試」。
+ *
+ * ⚠️ 必須與 web/src/lib/submission.js 的 BUSY_CODE 一致（後端拿不到前端檔案）。
+ *    這個代碼**只在完全沒有寫入任何資料時**才會出現（throw 在 appendRow 之前），
+ *    所以前端重試不會產生重複列 —— 這是重試得以安全的前提，不要改成在寫入
+ *    之後才回 BUSY。
+ */
+const BUSY_CODE = 'BUSY'
+const BUSY_MESSAGE = '系統忙碌中，請稍後再提交。'
+
+/** 標題列保護的說明文字，會顯示在試算表「編輯權限 → 保護範圍」的清單裡。 */
+const HEADER_PROTECTION_NOTE =
+  '報名表標題列：由 Code.gs 自動保護，欄位順序不可改動。'
 
 /**
  * 電郵通知的欄位名與選項值。
@@ -190,11 +229,11 @@ function doPost(e) {
       )
     }
 
-    var sheet = getSheet_()
-    var header = ensureHeader_(sheet, headers)
-    sheet.appendRow(row)
+    var written = writeRow_(headers, row)
 
     // 資料已落表，寄信失敗不回報給前端，避免報名者以為失敗而重複填寫。
+    // ⚠️ 這裡**已經在鎖外**（writeRow_ 釋放了鎖）：MailApp 可以跑幾秒，
+    //    鎖住它會令所有報名排隊，see LOCK_TIMEOUT_MS。
     var email = { status: 'not-attempted' }
     try {
       email = sendConfirmationEmail_(headers, row)
@@ -206,15 +245,59 @@ function doPost(e) {
     return jsonResponse_({
       ok: true,
       service: SERVICE_NAME,
-      headerCreated: header.created,
-      row: sheet.getLastRow(),
+      headerCreated: written.headerCreated,
+      row: written.lastRow,
       email: email,
     })
   } catch (error) {
     // 以 200 回應並帶 ok:false，前端才能讀到具體錯誤訊息（Google 會把
     // 非 2xx 轉成 HTML 錯誤頁，前端反而拿不到 JSON）。
+    if (error && error.code === BUSY_CODE) {
+      // 取不到鎖＝有人正在寫，資料一個字都還沒落地，因此可以安全重試。
+      console.warn('[報名] 取不到落表鎖：' + errorMessage_(error))
+      return jsonResponse_({ ok: false, code: BUSY_CODE, error: errorMessage_(error) })
+    }
     return jsonResponse_({ ok: false, error: errorMessage_(error) })
   }
+}
+
+/**
+ * 把一列報名資料寫入試算表，**整段用互斥鎖序列化**。回傳 {headerCreated, lastRow}。
+ *
+ * ⚠️ 為什麼要鎖：ensureHeader_ 讀 getLastRow()、appendRow 再依位置寫入，這是
+ *    read-then-write，Apps Script **不保證**兩次呼叫之間沒有另一個執行插入。
+ *    兩個並行執行都讀到同一個 lastRow 就會寫進同一橫，其中一筆報名會**靜靜
+ *    消失，而回應仍是 ok:true** —— 報名者以為報了名，名單上卻沒有他。
+ *    這是本專案最不能接受的失敗型態，理由與檔頭「寄信是附加動作」相同：
+ *    寧可讓人重試一次，也不要讓報名資料憑空消失。
+ *
+ * ⚠️ 鎖**只包這個函式**。不要為了「順手」把寄信也包進來：MailApp 可以跑幾秒，
+ *    由頭鎖到尾會令所有提交排隊，tryLock 大量超時 —— 為防撞車而製造新故障。
+ *
+ * ⚠️ 用 tryLock 而非 waitLock，理由見 LOCK_TIMEOUT_MS。
+ *
+ * 取不到鎖時丟出帶 BUSY_CODE 的錯誤，且**發生在任何寫入之前**，所以前端重試
+ * 不會產生重複列。
+ */
+function writeRow_(headers, row) {
+  var lock = LockService.getScriptLock()
+  if (!lock.tryLock(LOCK_TIMEOUT_MS)) throw busyError_()
+  try {
+    var sheet = getSheet_()
+    var header = ensureHeader_(sheet, headers)
+    sheet.appendRow(row)
+    return { headerCreated: header.created, lastRow: sheet.getLastRow() }
+  } finally {
+    // 必須放，否則例外路徑會把整個表單永久鎖死。
+    lock.releaseLock()
+  }
+}
+
+/** 帶 BUSY_CODE 的錯誤，讓 doPost 能回出可供前端重試的回應。 */
+function busyError_() {
+  var error = new Error(BUSY_MESSAGE)
+  error.code = BUSY_CODE
+  return error
 }
 
 /* ---------------------------------------------------------------- 內部函式 */
@@ -424,7 +507,12 @@ function describeSheet_() {
 function ensureHeader_(sheet, headers) {
   var isEmpty = sheet.getLastRow() === 0 || sheet.getLastColumn() === 0
   if (isEmpty) {
+    // ⚠️ 必須先解除保護：「清除內容」不會移除第 1 橫的保護，於是
+    //    「清空試算表 → 重建標題列」這個改 schema 流程會撞上
+    //    「你無法編輯這個範圍」而失敗。
+    unprotectHeader_(sheet, headers.length)
     sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+    protectHeader_(sheet, headers.length)
     return { created: true }
   }
 
@@ -459,7 +547,60 @@ function ensureHeader_(sheet, headers) {
     )
   }
 
+  // 標題列正確也補上保護（自我修復）：這份試算表可能建立於本機制之前，
+  // 或者有人手動解除過。讓「改壞標題列就拒絕寫入」這個保護不只活在程式碼裡。
+  protectHeader_(sheet, width)
+
   return { created: false }
+}
+
+/**
+ * 保護標題列（第 1 橫）。
+ *
+ * 為什麼值得保護：ensureHeader_ 逐欄比對標題列，**只要順序不對就拒絕所有寫入**
+ * —— 有人插入一欄、重新排序、刪掉標題列或改錯欄名，之後每一次報名都會失敗，
+ * 畫面只顯示「標題列與表單欄位順序不一致」，要人手搶修。插入欄位與排序都必然
+ * 觸及第 1 橫，所以保護第 1 橫就能擋住這類結構性意外。
+ *
+ * 為什麼**只**保護第 1 橫而不保護整張表：appendRow 不碰第 1 橫，資料照樣寫得
+ * 進去，因此不必依賴「擁有者可繞過保護」這個沒寫在文件裡的行為。整張表保護
+ * 還會擋住人手修正個別資料，效益不划算。
+ *
+ * ⚠️ 保護失敗**絕對不可以令報名失敗**：保護只是防手滑，不是報名的前置條件。
+ *    這裡吞掉所有例外並只記錄 —— 反過來說，也不要為了「保證有保護」而把
+ *    保護的例外往外丟。
+ */
+function protectHeader_(sheet, width) {
+  try {
+    var range = sheet.getRange(1, 1, 1, width)
+    if (range.getProtections(SpreadsheetApp.ProtectionType.RANGE).length > 0) return
+    range.protect().setDescription(HEADER_PROTECTION_NOTE).setWarningOnly(false)
+    console.log('[報名] 已保護標題列（第 1 橫）')
+  } catch (error) {
+    console.warn('[報名] 保護標題列失敗，報名不受影響：' + errorMessage_(error))
+  }
+}
+
+/**
+ * 寫入標題列前，解除任何涵蓋第 1 橫的保護（範圍保護與整張表保護都包括）。
+ *
+ * 只在「試算表是空的、要重建標題列」時呼叫。若人手在介面保護了整張表，這裡
+ * 會把它也解除 —— 這是刻意的：這條路徑正是 AGENTS.md 指定的「改 schema 後
+ * 清空試算表重建標題列」流程，讓它因為權限而失敗，代價（要回頭手動重設保護）
+ * 大於它避免的麻煩。解除後 protectHeader_() 會補上第 1 橫保護。
+ */
+function unprotectHeader_(sheet, width) {
+  var removed = 0
+  sheet
+    .getRange(1, 1, 1, width)
+    .getProtections()
+    .forEach(function (protection) {
+      protection.remove()
+      removed++
+    })
+  if (removed > 0) {
+    console.log('[報名] 重建標題列前解除保護（' + removed + ' 個）')
+  }
 }
 
 function errorMessage_(error) {

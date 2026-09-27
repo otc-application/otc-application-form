@@ -76,40 +76,47 @@ sequenceDiagram
         F-->>U: 標紅欄位、聚焦第一個錯誤欄位<br/>（不發請求）
     else 驗證通過
         F->>F: status = submitting<br/>渲染 LoadingOverlay
-        F->>F: buildColumns() / buildRow()
+        F->>F: buildColumns() / buildRow()<br/>（body 只組一次，重試不改「提交時間」）
         F->>G: POST /exec<br/>Content-Type: text/plain
         G->>G: parseBody_(e) → JSON.parse
         G->>G: requireStringArray_() × 2<br/>檢查長度一致
-        G->>S: getActiveSpreadsheet()
-        G->>S: ensureHeader_()
-        alt 試算表為空
-            S-->>G: 寫入標題列<br/>headerCreated = true
-        else 標題列已存在
-            G->>S: 逐欄比對
-            alt 順序一致
-                S-->>G: 通過
-            else 順序不一致
-                G-->>F: 200 { ok:false, error:"…第 N 欄…" }
+        G->>G: LockService.tryLock(10000)
+        alt 取不到鎖（有人正在落表）
+            G-->>F: 200 { ok:false, code:"BUSY" }
+            F->>F: 等待 1 秒後重試一次
+        else 取得鎖
+            G->>S: getActiveSpreadsheet()
+            G->>S: ensureHeader_()（順帶保護第 1 橫）
+            alt 試算表為空
+                S-->>G: 寫入標題列<br/>headerCreated = true
+            else 標題列已存在
+                G->>S: 逐欄比對
+                alt 順序一致
+                    S-->>G: 通過
+                else 順序不一致
+                    G-->>F: 200 { ok:false, error:"…第 N 欄…" }
+                end
             end
-        end
-        G->>S: appendRow(row)
-        S-->>G: 寫入成功
-        Note over G,M: 資料已落表，寄信是附加動作
-        G->>G: sendConfirmationEmail_(headers, row)
-        alt 電郵通知欄 = 需要 且有地址
-            G->>M: MailApp.sendEmail()
-            alt 寄信成功
-                M-->>G: 已寄出
-                G->>G: email = { status:"sent", to }
-            else MailApp 擲出例外
-                G->>G: email = { status:"failed", error }<br/>console.error 記錄
+            G->>S: appendRow(row)
+            S-->>G: 寫入成功
+            G->>G: releaseLock()
+            Note over G,M: 鎖已釋放，寄信是附加動作
+            G->>G: sendConfirmationEmail_(headers, row)
+            alt 電郵通知欄 = 需要 且有地址
+                G->>M: MailApp.sendEmail()
+                alt 寄信成功
+                    M-->>G: 已寄出
+                    G->>G: email = { status:"sent", to }
+                else MailApp 擲出例外
+                    G->>G: email = { status:"failed", error }<br/>console.error 記錄
+                end
+            else 未勾選 / 沒地址 / 欄位不存在
+                G->>G: email = { status:"skipped", reason }
             end
-        else 未勾選 / 沒地址 / 欄位不存在
-            G->>G: email = { status:"skipped", reason }
+            G-->>F: 200 { ok:true, headerCreated, row, email }
+            F->>F: status = success<br/>values 存入 submitted
+            F-->>U: 捲動至頂、渲染 SuccessScreen
         end
-        G-->>F: 200 { ok:true, headerCreated, row, email }
-        F->>F: status = success<br/>values 存入 submitted
-        F-->>U: 捲動至頂、渲染 SuccessScreen
     end
 ```
 
@@ -418,8 +425,38 @@ flowchart LR
 | `欄位數量與資料列不符（headers N 欄，row M 欄）` | 前後端不一致 | 通常代表 `buildColumns` 與 `buildRow` 被改動其一 |
 | `找不到綁定的試算表，請確認本專案已附加在目標試算表上。` | 不是以容器 bound 建立 | 重新用「擴充功能 → Apps Script」建立 |
 | `試算表標題列與表單欄位順序不一致：第 N 欄應為「X」但目前是「Y」` | 改過 schema 但沒重建標題列 | 清空試算表或修正標題列 |
+| `系統忙碌中，請稍後再提交。` | 取不到落表鎖（有人正在寫入） | **暫時性**，前端已自動重試一次；連續出現就看 Apps Script 執行紀錄 |
 
-前端 `submitApplication()` 的四層防護：
+失敗回應多了一個 `code` 欄位，目前只有 `BUSY` 一個值：
+
+```json
+{ "ok": false, "code": "BUSY", "error": "系統忙碌中，請稍後再提交。" }
+```
+
+- `code` 讓前端分辨「值得重試」與「重試也沒用」。沒有 `code` 的錯誤全部不重試。
+- ⚠️ `BUSY` **只在完全沒有寫入任何資料時**回傳（`tryLock` 失敗發生在 `appendRow` 之前），所以前端重試不會產生重複列。這是 `writeRow_()` 與前端重試之間的隱含約定：若日後把 `BUSY` 改成寫入之後才回，重試就會造出重複報名。
+- 反過來，**網絡層的失敗（fetch 拋錯、非 2xx、回應非 JSON）一律不重試**：那種情況下後端可能已經寫入了，重試只會多一行。重複報名的風險高於讓使用者自己再撳一次。
+
+### 前端重試路徑
+
+`submitApplication()` 在 `BUSY` 時等 1 秒重試一次（上限兩次嘗試），其餘錯誤照舊直接拋出：
+
+```mermaid
+flowchart TB
+    S["postOnce_(body)"] --> C1{"payload.ok 為真？"}
+    C1 -->|"是"| OK["回傳 payload"]
+    C1 -->|"否"| C2{"是 BUSY？<br/>code==='BUSY' 或 訊息含「忙碌」"}
+    C2 -->|"否"| ERR["拋出 報名失敗：payload.error"]
+    C2 -->|"是，已用 2 次"| ERR
+    C2 -->|"是，仍有機會"| W["sleep 1000ms"] --> S
+```
+
+兩個細節：
+
+- **body 只組一次**，重試送的是同一份 payload，所以「提交時間」欄不會因為重試而改變，試算表上看到的就是使用者按下去的時間。
+- `isBusy_()` 用 `code === 'BUSY' || 訊息含「忙碌」` 兩個條件取 OR。任一邊被改壞都還有另一邊守住 —— 重試若靜靜失效**不會報錯**，只是使用者平白見到一次紅字再去撳一次，這類沒有症狀的退化正是要防的東西。
+
+前端 `submitApplication()` 的四層防護（外層再套一個 `BUSY` 重試迴圈，見上節）：
 
 ```mermaid
 flowchart TB
@@ -435,6 +472,48 @@ flowchart TB
 ```
 
 `SUBMIT_ERROR_MESSAGE` 是一般化訊息（`config.js`）；只有後端明確回傳 `error` 時才顯示具體原因。
+
+## 並行寫入與標題列保護
+
+兩個機制處理不同的失敗模式，寫在同一個 `writeRow_()` 裡。
+
+### 落表互斥鎖（防報名資料消失）
+
+`ensureHeader_()` 讀 `getLastRow()`、`appendRow()` 再依位置寫入，這是 read-then-write，**Apps Script 不保證兩次呼叫之間沒有另一個執行插入**。兩個並行執行若都讀到同一個 `lastRow`，會寫進同一橫 —— 其中一筆報名**靜靜消失，但回應仍是 `ok: true`**。報名者以為報了名，名單上卻沒有他，這是本專案最不能接受的失敗型態（與「寄信是附加動作」同一個理由）。
+
+```mermaid
+flowchart LR
+    A["doPost()"] --> B["writeRow_(headers, row)"]
+    B --> C{"tryLock(10000)"}
+    C -->|"失敗"| D["throw busyError_<br/>code = BUSY<br/>（未寫入任何資料）"]
+    C -->|"成功"| E["ensureHeader_() + appendRow()"]
+    E --> F["finally: releaseLock()"]
+    F --> G["sendConfirmationEmail_()<br/>⚠️ 在鎖外"]
+```
+
+三個不能寫錯的地方：
+
+| 寫法 | 後果 |
+| --- | --- |
+| `tryLock(10000)` ✅ | 鎖只包幾百毫秒的操作，10 秒極寬鬆 |
+| `waitLock()` ❌ | 無限等待。一個卡死的執行會令**之後所有報名**都逾時 —— 為防撞車而製造新故障 |
+| 寄信在鎖外 ✅ | `MailApp` 可跑幾秒；由頭鎖到尾會令所有提交排隊，`tryLock` 大量超時 |
+| 寄信在鎖內 ❌ | 同上，且機率更高（寄信比落表慢得多） |
+| `finally` 放鎖 ✅ | 例外路徑也會放 |
+| 沒有 `finally` ❌ | 一次例外就永久鎖死整個表單 |
+
+`LockService` **不需要新增 OAuth scope**，`appsscript.json` 不必改；但 `Code.gs` 改了就要照 `deploy.ps1` 部署。
+
+### 標題列保護（防人手改壞）
+
+`ensureHeader_()` 逐欄比對標題列，**只要順序不對就拒絕所有寫入**。有人插入一欄、重新排序、刪掉標題列或改錯欄名，之後每一次報名都會失敗，畫面只顯示「標題列與表單欄位順序不一致」，要人手搶修。插入欄位與排序都必然觸及第 1 橫，所以 `protectHeader_()` 只保護**第 1 橫**就足以擋住這類結構性意外。
+
+- 為什麼**不**保護整張表：`appendRow` 不碰第 1 橫，資料照樣寫得進去，因此不必依賴「擁有者可繞過保護」這個沒寫在文件裡的行為。整張表保護還會擋住人手修正個別資料。
+- 為什麼**不**手動在介面設「編輯前先要求我核准」：那會令 GAS 的寫入變成「待批准變更」，等於資料根本沒入表。
+- **保護失敗不會令報名失敗**：`protectHeader_()` 吞掉所有例外只記錄。保護是防手滑，不是報名的前置條件。
+- 已經存在的標題列也會補上保護（自我修復），所以這份試算表建立於本機制之前、或有人手動解除過，都會在下一次報名時補回。
+
+⚠️ 與「改 schema 後清空試算表重建標題列」這個流程的交互作用：用「選取全部 → 清除內容」清空**不會**移除第 1 橫的保護，於是重建標題列會撞上「你無法編輯這個範圍」。`unprotectHeader_()` 因此在寫入標題列前先解除任何涵蓋第 1 橫的保護（範圍型與整張表型都包括），寫完再由 `protectHeader_()` 補上。若有人在介面保護了整張表，這條路徑會把它也解除 —— 這是刻意的取捨：讓重建標題列因為權限而失敗，代價大於它避免的麻煩。
 
 ## 診斷端點
 

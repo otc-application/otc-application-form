@@ -177,6 +177,19 @@ export function validateForm(values, schema = formSchema) {
 }
 
 /**
+ * 後端回報「取不到落表鎖」的代碼。⚠️ 必須與 gas/Code.gs 的 BUSY_CODE 一致。
+ *
+ * 為什麼重試是安全的：後端只在**完全沒有寫入任何資料**的情況下回這個代碼
+ * （throw 發生在 appendRow 之前）。所以重試不會產生重複列 —— 這個前提是後端
+ * 那邊的約束，不要把 BUSY 改成寫入之後才回，否則重試就會造出重複報名。
+ */
+const BUSY_CODE = 'BUSY'
+
+/** 重試前的等待時間，讓對方的鎖有機會釋放。 */
+const BUSY_RETRY_DELAY_MS = 1000
+const BUSY_MAX_ATTEMPTS = 2
+
+/**
  * 送出報名資料到 GAS Web App。
  *
  * 注意：GAS 的 doPost 即使內部錯誤也會回 200，所以除了 HTTP 狀態碼
@@ -189,29 +202,18 @@ export async function submitApplication(values, schema = formSchema) {
     )
   }
 
-  let response
-  try {
-    response = await fetch(GAS_API_URL, {
-      method: 'POST',
-      mode: 'cors',
-      // 這裡**必須**是 text/plain，不能是 application/json。
-      // JSON 的 POST 屬於 CORS 的「非簡單請求」，瀏覽器會先送 OPTIONS 預檢，
-      // 而 GAS 只把 GET/POST 派發給 doGet/doPost，預檢會拿到 405，報名就送不出去。
-      // 純文字內容型態屬於簡單請求，不需要預檢，後端仍可 JSON.parse。
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ headers: buildColumns(schema), row: buildRow(values, schema) }),
-    })
-  } catch {
-    throw new Error(SUBMIT_ERROR_MESSAGE)
-  }
-
-  if (!response.ok) throw new Error(SUBMIT_ERROR_MESSAGE)
+  // 送出時間只算一次：重試不應該改變「提交時間」欄位。
+  const body = JSON.stringify({
+    headers: buildColumns(schema),
+    row: buildRow(values, schema),
+  })
 
   let payload
-  try {
-    payload = await response.json()
-  } catch {
-    throw new Error(SUBMIT_ERROR_MESSAGE)
+  for (let attempt = 1; ; attempt++) {
+    payload = await postOnce_(body)
+    if (payload?.ok || !isBusy_(payload) || attempt >= BUSY_MAX_ATTEMPTS) break
+    console.warn(`[報名] 後端忙碌中，第 ${attempt} 次嘗試，共 ${BUSY_MAX_ATTEMPTS} 次`)
+    await sleep_(BUSY_RETRY_DELAY_MS)
   }
 
   if (!payload?.ok) {
@@ -225,4 +227,46 @@ export async function submitApplication(values, schema = formSchema) {
   }
 
   return payload
+}
+
+/** 送出一次並回傳解析後的 JSON；連線或格式問題在此就轉成使用者看得懂的訊息。 */
+async function postOnce_(body) {
+  let response
+  try {
+    response = await fetch(GAS_API_URL, {
+      method: 'POST',
+      mode: 'cors',
+      // 這裡**必須**是 text/plain，不能是 application/json。
+      // JSON 的 POST 屬於 CORS 的「非簡單請求」，瀏覽器會先送 OPTIONS 預檢，
+      // 而 GAS 只把 GET/POST 派發給 doGet/doPost，預檢會拿到 405，報名就送不出去。
+      // 純文字內容型態屬於簡單請求，不需要預檢，後端仍可 JSON.parse。
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body,
+    })
+  } catch {
+    throw new Error(SUBMIT_ERROR_MESSAGE)
+  }
+
+  if (!response.ok) throw new Error(SUBMIT_ERROR_MESSAGE)
+
+  try {
+    return await response.json()
+  } catch {
+    throw new Error(SUBMIT_ERROR_MESSAGE)
+  }
+}
+
+/**
+ * 回應是否代表「後端忙碌，什麼都還沒寫入」→ 可以安全重試。
+ *
+ * 兩個條件取 OR：任一邊被改壞都還有另一邊守住。重試若靜靜失效**不會報錯**，
+ * 只是報名者平白見到一次紅字再去撳一次 —— 這類沒有症狀的退化正是本專案
+ * 要防的東西，所以刻意留兩道。
+ */
+function isBusy_(payload) {
+  return payload?.code === BUSY_CODE || String(payload?.error ?? '').includes('忙碌')
+}
+
+function sleep_(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
