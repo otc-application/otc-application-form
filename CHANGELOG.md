@@ -11,6 +11,18 @@
 
 ### Added
 
+- **`gas/deploy.ps1`：一鍵部署後端。** 依序做前置檢查（`gas/` 只能有
+  `Code.gs` 一個程式檔、`.clasp.json` 的 `scriptId` 相符、部署仍存在於
+  `clasp list-deployments`、`web/.env.production` 網址與部署相符）→
+  `clasp push -f` → `clasp redeploy <固定部署ID>` → 驗證部署版本是最新且
+  `curl` 回 `ok:true`、`sheet.name` 非空、`lastColumn` 等於 `buildColumns()`
+  的欄數。任何一步不符即 `exit 1`，不會繼續往下部署。
+- **本專案的 GAS 部署 ID 固定**，不再建立新部署：
+  `AKfycbxeTyNNKooo3xmG3CsdpBhULnMiduMz8ozAdwQ1glai7XnBGGlN82DPwBDwbv-i1PmX`。
+  `deploy.ps1` 把它寫成常數且永不自行建立部署；`@4 - Good`
+  （`AKfycbwLzq…`）保留為不更動的備援部署。
+- `gas/.claspignore`：以白名單鎖定只推送 `Code.gs` 與 `appsscript.json`。
+- `.clasp.json` 加入 `.gitignore`（`.clasp.json.example` 仍進版控）。
 - **報名成功彈窗（SweetAlert2）**：送出成功時跳出，內容與成功畫面同源 ——
   報名成功標題、感謝詞、**報名資料逐欄明細**、收費截止提示。底部兩個按鈕：
   「匯出報名資料（PDF）」與「完成」。設 `reverseButtons`，讓確認鈕（匯出 PDF）
@@ -35,6 +47,16 @@
   當時掛在 App 的 root 底下，root 被藏掉時列印區也跟著消失。現在改用
   `createPortal` 把列印區掛到 `document.body` 直屬層，並加註說明原因，
   避免日後有人把它「整理」回 App 裡。
+- **修復後端離線：報名全部寫不進試算表。** `clasp push` 把兩個內容完全相同
+  的檔案一起送上去 —— `Code.gs` 與 Apps Script 中文介面自動產生的
+  `程式碼.js`（預設檔名「程式碼」＝ Code）。兩者都在頂端宣告
+  `const SERVICE_NAME`，整個專案編譯失敗：
+  `SyntaxError: Identifier 'SERVICE_NAME' has already been declared`。
+  `doGet` 與 `doPost` 一起死掉，**前端照常顯示報名成功，但後端什麼都沒寫入**
+  —— 這是最糟的失敗型態：使用者以為報名成功，資料其實不存在。
+  修法為在本機刪掉重複檔再 `clasp push -f`（讓本機與遠端一致），
+  不在 Apps Script 編輯器手動刪檔。預防措施見 `deploy.ps1` 與
+  `gas/.claspignore`。
 
 ### Changed
 
@@ -60,9 +82,19 @@
   專案）、`clasp push` 需要 `-f` 才會覆寫 manifest、以及 `clasp push` 是
   單向覆寫會刪掉遠端多餘的檔案（所以編輯器手改的 `TEST_RECIPIENT` 會被
   蓋回 placeholder）。
-- 日常部署建議用 `clasp deploy -i <部署ID>` 而非 `clasp deploy -V`：前者更新
-  既有部署、`/exec` 網址不變，前端不必跟著改；後者會建立新部署、網址換掉，
-  必須再改 `.env.production` 並再部署一次 Pages。
+- 日常部署改為執行 `gas/deploy.ps1`，**不再**直接呼叫 `clasp deploy`。
+  特別記錄兩個會整個弄壞線上部署的坑：
+  - **`clasp deploy -V <版本> -i <部署ID>` 會永久刪掉該部署。**
+    `clasp deploy` 是 `create-deployment` 的別名，帶 `-i` 去更新既有部署是
+    未經文件支援的組合。實測之後 `clasp redeploy` 回
+    `Requested entity was not found`、`/exec` 回 404、該 ID 從
+    `clasp list-deployments` 消失。要更新既有部署只能用
+    `clasp redeploy <部署ID>`。
+  - **`-V` 會把部署釘死在該版本**，之後 push 的新碼永遠不會上線且沒有錯誤。
+    實測：部署在 `@6`、最新版本 `@10`，下 `-V 6` 就永久停在舊碼。
+    `redeploy` **不帶 `-V`** 才是部署最新版本。
+- **`clasp show-file-status` 的輸出必須在 push 之前讀。** 本次事故中它事前
+  就列出了第三個檔案 `程式碼.js`，事後才看已經來不及。
 
 ## [0.4.2] - 2026-09-27
 

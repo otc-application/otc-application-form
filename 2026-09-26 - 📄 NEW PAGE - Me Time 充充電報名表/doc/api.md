@@ -237,31 +237,78 @@ cp .clasp.json.example .clasp.json # 填入 scriptId
 空格與 emoji，根目錄版的 `rootDir` 要帶整條含 emoji 的路徑，是已知會出問題
 的組合。放在 `gas/` 內則 `rootDir` 可以省略，換活動 = 換一份 `.clasp.json`。
 
-`.clasp.json` 本身**不含憑證**（憑證存在 `~/.clasp.json`），只有 scriptId，
-所以可以 commit。但若不想讓 scriptId 進公開 repo，加入 `.gitignore`。
+`.clasp.json` 本身**不含憑證**（憑證存在 `%USERPROFILE%\.clasprc.json`），
+只有 scriptId 與 rootDir。本 repo 已把它加入 `.gitignore`（`.clasp.json.example`
+仍進版控作為範本），換活動時複製範本填入新的 scriptId。
 
-#### 日常部署
+#### 日常部署：一支腳本
 
 ```bash
 cd "2026-09-26 - 📄 NEW PAGE - Me Time 充充電報名表/gas"
-
-clasp show-file-status              # 先看會推送什麼（強烈建議）
-clasp push -f                      # -f 覆寫 manifest，否則 oauthScopes 會被擋
-clasp deploy -i <部署ID> -d "說明"   # 重新部署**同一個**部署 → /exec 網址不變
-clasp deployments                   # 確認
+./deploy.ps1
 ```
 
-**為什麼用 `-i` 而不是 `-V`**：`clasp deploy` 不帶 `-i` 會**建立新部署**，
-`/exec` 網址就會換掉，必須再改 `web/.env.production`、再 commit、再等
-Pages 自動部署。`clasp deploy -i <部署ID>` 是更新既有部署，網址保持不變，
-前端完全不需要跟著改。`部署ID` 就是 `/exec` 網址裡 `macros/s/` 後面那段。
+`deploy.ps1` 依序做四件事，任何一步不符就 `exit 1`：
 
-若想要可回滾的版本快照另外做（會換網址，謹慎使用）：
+1. **前置檢查** — `gas/` 必須只有 `Code.gs` 一個程式檔；`.clasp.json` 的
+   `scriptId` 必須等於預期的專案；部署必須仍存在於 `clasp list-deployments`；
+   `web/.env.production` 的網址必須等於固定部署網址。
+2. **`clasp push -f`** — 推送 `Code.gs` 與 `appsscript.json`。
+3. **`clasp redeploy <部署ID>`** — 更新**既有**部署，`/exec` 網址不變。
+4. **驗證** — 部署版本必須等於最新版本，且 `curl` 必須回 `ok:true`、
+   `sheet.name` 非空、`lastColumn` 等於 `buildColumns()` 的欄數。
 
-```bash
-clasp create-version "說明"   # 不可變版本
-clasp versions                # 查版本
+只想重新部署、略過推送（例如只改了部署設定）時用 `-SkipPush`。
+
+#### 固定部署，不再新增
+
+本專案的部署 ID 已固定，**不再建立新的部署**：
+
 ```
+AKfycbxeTyNNKooo3xmG3CsdpBhULnMiduMz8ozAdwQ1glai7XnBGGlN82DPwBDwbv-i1PmX
+```
+
+`deploy.ps1` 把它寫在常數裡，**永遠不會自行建立部署**。若這個部署消失，
+腳本會直接報錯停止 —— 請在 Apps Script 編輯器手動重建部署，再同步更新
+`web/.env.production` 與 `deploy.ps1` 的常數。`@4 - Good`
+（`AKfycbwLzq…`）保留為不更動的備援部署。
+
+#### ⚠️ 絕對不要用 `-V` 部署到固定版本
+
+`clasp redeploy <id> -V <版本>` 會把部署**釘死在該版本**，之後每次 push 的
+新程式碼都不會上線，而且沒有任何錯誤。實測：目標部署當時在 `@6`、最新版本
+是 `@10`，若下 `redeploy -V 6` 就會永遠停在舊碼。
+
+`clasp redeploy <id>` **不帶 `-V`** 才是「部署最新版本」，也是 `deploy.ps1`
+的行為。`clasp --help` 對 `redeploy` 的說明是 "Updates a deployment for a
+project to a **new** version" —— 新的，不是任選某個舊的。
+
+同理**不要**用 `clasp deploy -V <版本> -i <部署ID>`。`clasp deploy` 是
+`create-deployment` 的別名，帶上 `-i` 去更新既有部署是未經文件支援的組合。
+本次事故就是這樣**永久刪掉了原本的部署**（詳見下方事故記錄）。
+
+#### 🔴 事故記錄：重複檔案讓整個專案編譯失敗
+
+`clasp show-file-status` 曾列出第三個檔案 `程式碼.js` —— 那是 Apps Script
+在中文介面自動產生的預設檔名（「程式碼」＝ Code），內容與 `Code.gs`
+**完全相同**。`clasp push` 把兩份都送上去之後：
+
+```
+SyntaxError: Identifier 'SERVICE_NAME' has already been declared
+```
+
+兩個檔案都在頂端宣告 `const SERVICE_NAME`，整個專案編譯失敗，`doGet` 與
+`doPost` 一起死掉，**畫面照常顯示報名成功但後端什麼都沒寫入**。
+
+**教訓：`clasp show-file-status` 的輸出必須在 push 之前讀**，不能 push 完才看。
+現在由兩道機制擋住：
+
+- `deploy.ps1` 開頭就檢查 `gas/` 只能有 `Code.gs` 一個程式檔，多一個就中止。
+- `gas/.claspignore` 以白名單鎖定只推送 `Code.gs` 與 `appsscript.json`。
+
+若真的發生了，正確修法是**在本機**刪掉重複檔再 `clasp push -f`（讓本機與
+遠端一致），**不要**在 Apps Script 編輯器裡手動刪檔 —— 那會讓本機與遠端
+再次分歧，下一次 push 又會把它送回去。
 
 #### ⚠️ `clasp push` 會覆寫並刪除遠端檔案
 
@@ -276,6 +323,13 @@ Apps Script 編輯器手動改過 `Code.gs`（例如把 `TEST_RECIPIENT` 換成�
 授權（OAuth consent）是綁在「專案 + 帳號」上，不綁部署，所以**授權過一次
 之後，之後的 `clasp push` / `clasp deploy` 都不需要再授權**。但改了程式碼
 仍然需要重新部署才會生效。
+
+#### 自動化不含在 CI
+
+`deploy.ps1` 只能在本機跑：`clasp` 的 OAuth 需要瀏覽器授權，GitHub Actions
+拿不到。`.github/workflows/deploy_github_pages.yml` 只負責前端。
+**GAS 部署 → 驗證 → 再 commit**，順序不要顛倒：先確定後端活著，再把網址
+進版控。
 
 ### 宣告的權限
 
