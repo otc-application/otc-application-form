@@ -8,6 +8,17 @@ export const eventInfo = {
   title: 'Me Time 充充電報名表',
   tagline: '給自己 2.5 小時，把混亂與忙碌的心情整頓',
   organizer: '基督教宣道會愛荃堂',
+  /**
+   * 主辦單位官方網站。「活動資訊 → 主辦單位」會渲染成連到此網站的連結。
+   *
+   * 留空則該行退回純文字：沒有這個判斷，`href={undefined}` 會變成有底線
+   * 但撳不到、也非 focusable 的假連結。
+   *
+   * 網址不進 `gas/Code.gs` —— 確認信只寫主辦名稱，Apps Script 那邊沒有
+   * 對應欄位，所以這個網址在 repo 內只有這一份，不會副本漂移。
+   * 換活動時記得一併更新。
+   */
+  organizerUrl: 'https://www.cmaotc.org/news.html',
   venue: '新界荃灣青山公路—荃灣段 117-121 號蘊崇大廈 1 樓',
   /**
    * 地點地圖連結。「活動資訊 → 地點」會渲染成連到地圖的連結。

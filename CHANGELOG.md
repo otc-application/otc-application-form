@@ -7,6 +7,30 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-27
+
+### Added
+
+- **「活動資訊 → 主辦單位」的名稱連到教會官方網站。** 資訊格第一行就係主辦
+  名稱，參加者要查堂會消息時不必再自己搜尋。連結指向教會網站的消息頁
+  （`cmaotc.org/news.html`），比首頁更貼近「有咩新消息」的需求。
+  - URL 放在 `web/src/data/event.js` 的 `eventInfo.organizerUrl`，**不硬編碼
+    進 JSX**，換活動時只改 `data/`。留空則該行退回純文字。
+  - 網址**不進 `gas/Code.gs`**：確認信維持主辦名稱純文字，所以這個網址在
+    repo 內只有一份，沒有副本漂移的問題，也因此本次**不需要部署 GAS**。
+
+### Changed
+
+- **`DescriptionSection.jsx` 抽出 `ExternalLink` 共用元件。** 「主辦單位」與
+  「地點」兩個外部連結原本會各自重複同一組 `target` / `rel` / className /
+  `sr-only` 提示。漏寫 `rel="noopener noreferrer"` 屬於靜默的安全退化，沒有
+  任何編譯或測試會提示，因此集中到單一出口。`查詢電話`（`tel:`）刻意不
+  參與 —— 撥電話不該開新分頁。
+  - ⚠️ `ExternalLink` **必須用 function 宣告**：`infoItems` 是模組層級
+    `const`，在 import 階段就求值並呼叫該元件；若寫成 `const` 箭嘴會撞 TDZ
+    → 整頁白屏，而且 **Vite build 照樣通過**，只有執行時才爆。已在元件上方
+    註解標明。
+
 ## [0.7.1] - 2026-09-27
 
 ### Added
