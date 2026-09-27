@@ -137,23 +137,31 @@ sequenceDiagram
 
 `emailNotify`（電郵通知）勾「需要」且 `email` 有值時，`sendConfirmationEmail_()` 會用 `MailApp` 寄一封報名確認信給報名者本人。
 
-內文與畫面上的「報名成功」一致，包含：成功圖示、報名成功訊息、**報名資料
-逐欄明細**、收費截止提示、查詢電話。
+內文與畫面上的「報名成功」一致，包含：報名成功訊息、**報名資料逐欄明細**、
+收費截止提示（`PAYMENT_NOTICE`）、名額安排提示（`QUOTA_NOTICE`）、查詢電話。
 
 - 明細由 `buildEmailDetails_()` **走訪標題列**產生，不是逐一 hardcode 欄位，
   所以 `formSchema.js` 加欄位時確認信會自動跟著多一列。要略過的欄位寫在
   `EMAIL_DETAIL_EXCLUDE`：目前是 `提交時間`（與收信當下重複）、`電郵通知`
   與 `電郵地址`（收件人就是那個地址，寫在信上只會多一份副本）。
-- 成功圖示是 **CID 內嵌**的 base64 PNG（`SUCCESS_ICON_BASE64`）。不要改成
-  外部圖片網址 —— 郵件客戶端預設擋遠端圖片，會變成破圖。GAS 沒有檔案系統，
-  所以圖片只能放在 `Code.gs` 裡。
+- ⚠️ 確認信**不含任何圖片**。曾經用 `MailApp.sendEmail({ ..., inlineImages })`
+  搭配 `<img src="cid:...">` 內嵌成功圖示，結果每一封信都寄不出去 ——
+  `inlineImages` 是 Gmail API 的參數，不是 `MailApp` 的，傳進去會直接拋錯
+  （`下列引數無效：inlineImages`）。症狀極具欺騙性：寄信失敗被降級成不影響
+  報名，所以畫面照常顯示報名成功，收件人信箱卻是空的。不要加回來。
 - 同時提供 `body`（純文字）與 `htmlBody`（HTML）。多數客戶端顯示 `htmlBody`，
-  純文字是給不支援 HTML 的客戶端降級用。
+  純文字是給不支援 HTML 的客戶端降級用。兩者都必須涵蓋同一組提示
+  （`PAYMENT_NOTICE`、`QUOTA_NOTICE`），改文案時兩個 builder 都要改。
 - 所有使用者輸入都經過 `escapeHtml_()` 才插進 HTML。姓名欄若不逸出，
   一個叫 `<img src=x onerror=...>` 的姓名就會變成寄給自己的惡意郵件。
 - 收費提示是 `Code.gs` 裡的 `PAYMENT_NOTICE`，**與
   `web/src/data/event.js` 的 `paymentNotice` 是兩份獨立副本**（Apps Script
   讀不到前端檔案）。改收費日期時兩個都要改。
+- 名額安排提示同理：`Code.gs` 的 `QUOTA_NOTICE` 與 `web/src/data/event.js`
+  的 `quota`、`notes`、拉筋班 `highlights` 是**同一句話的四份副本**，靠人工
+  同步。改名額規則時四處都要改。
+- ⚠️ 兩段提示都是**軟承諾**，不是執行依據：沒有任何程式會依名額提示排序或
+  拒收報名，實際由人手按提交先後處理。措辭刻意用「優先考慮」而非「優先」。
 
 ```mermaid
 flowchart TD

@@ -92,6 +92,7 @@ npm run preview  # 預覽 dist/
 - **`pricing[].deadline` 只放純日期**（`10 月 18 日`），**絕對不要塞整句**。這兩句會被接在「…截止 {deadline}」後面組句子，一旦裡面自帶「前報名」或「截止報名日期」，就會組出「一般收費截止 截止報名日期 10 月 25 日」這種重複詞。這個錯誤實際上線過，畫面上的收費提示就是錯的。
 - **收費提示有三個地方要顯示**（成功畫面、報名成功彈窗、確認信），所以由 `web/src/data/event.js` 的 `paymentNotice` 統一組出，不要各寫各的。
 - ⚠️ **`event.js` 的 `paymentNotice` 與 `gas/Code.gs` 的 `PAYMENT_NOTICE` 是兩份獨立副本** —— Apps Script 讀不到前端的檔案。改收費日期／文案時**兩個檔案都要改**，這個不一致不會讓任何程式報錯，只是信上與畫面上的日期不同。
+- ⚠️ **名額安排那句話有四份副本**：`event.js` 的 `quota`、`notes`、拉筋班 `highlights`，加 `gas/Code.gs` 的 `QUOTA_NOTICE`（確認信）。後者拿不到前端檔案，只能人工同步。改名額規則四處都要改。措辭統一用「優先考慮」而非「優先」：**這是軟承諾，沒有任何程式會依它排序或拒收報名**，實際由人手按提交先後處理。
 - 「報名資料」清單由 `web/src/lib/summary.js` 的 `buildSummaryRows()` 組出，成功畫面、彈窗、列印區三處共用。不要在某個元件裡自己從 `values` 拼一份，會漂移。
 
 ## 報名成功彈窗與 PDF 匯出
@@ -145,6 +146,15 @@ npm run preview  # 預覽 dist/
   後把 description 讀回來比對，寫不上去就 `exit 1`。
   順帶一提，Clasp 網頁版在中文介面下**完全不顯示 description**，
   只有 `clasp list-deployments` 看得到。
+- ⚠️ **版本驗證必須輪詢，不能只查一次。** `clasp redeploy` 已回報成功、
+  `clasp list-versions` 也出現新版本之後，`clasp list-deployments` **仍會有一小段
+  時間回報舊的 `versionNumber` 與舊的 `description`**（API 傳播延遲）。實測過：
+  redeploy 回報 `@14`、versions 有 `@14`，緊接著查詢卻拿到 `@13` 與上一次部署的
+  description，於是腳本誤報 `New code is not live` 並 `exit 1` —— 部署其實完全成功。
+  症狀與「部署壞掉」一模一樣，是最容易讓人白做一次重建的形狀。`deploy.ps1` 現在
+  會在 90 秒時限內每 5 秒重查，等 `versionNumber` 追上**且** `description` 相符
+  才回 OK；超時才當失敗（真的沒寫上 description 時仍會報錯）。
+  改這個區塊時不要順手「簡化」成單次查詢。
 - ⚠️ **改 `deploy.ps1` 時：含中文必須存成 UTF-8 with BOM，且必須保留
   `[Console]::OutputEncoding = [Text.Encoding]::UTF8`。** 兩個都是
   PowerShell 5.1 的坑：
