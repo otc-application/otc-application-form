@@ -41,7 +41,7 @@
 - 每個欄位用 `type` 選擇渲染元件：`text` / `tel` / `radio` / `checkboxGroup` / `childrenByDate`（對應 `components/Field.jsx` 的 switch）。
 - **條件式欄位**寫在選項的 `fields` 裡，會在該選項被選中時顯示（見「所屬類別」）。
 - 每個欄位的 `column` 是試算表標題列文字。多個欄位可共用同一個 `column`（例如「小組名稱」同時服務新朋友與會友），`buildRow` 會去重並取第一個有值的欄位。
-- **改完 schema 必須清空試算表或重建標題列**，否則 `Code.gs` 的 `ensureHeader_` 會逐欄比對發現順序不符而拒絕寫入（這是刻意設計：appendRow 位置錯配不會報錯，只會靜默寫錯欄）。
+- **改完 schema 必須清空試算表或重建標題列**，否則 `Code.gs` 的 `ensureHeader_` 會逐欄比對發現順序不符而拒絕寫入（這是刻意設計：appendRow 位置錯配不會報錯，只會靜默寫錯欄）。標題列受程式保護，但重建時 `unprotectHeader_` 會先解除保護，**不必手動去介面解除**（見「GAS 後端踩雷點」）。
 - 兒童區是 `childrenByDate`，試算表每個日期一欄，值格式為 `姓名（年齡歲），姓名（年齡歲）`。
 
 ## 快速開始連結區（README + QUICK_START.md）
@@ -199,6 +199,40 @@ npm run preview  # 預覽 dist/
 
 ## GAS 後端踩雷點
 
+- ⚠️ **落表要用 `LockService` 序列化，鎖只包「讀標題列 → append 一列」。**
+  `doPost` 原本是 read-then-write（`ensureHeader_` 讀 `getLastRow()`、
+  `appendRow` 再依位置寫），Apps Script **不保證**兩次呼叫之間沒有另一個
+  執行插入。兩個並行執行都讀到同一個 `lastRow` 就會寫進同一橫，其中一筆報名
+  **靜靜消失但回應仍是 `ok:true`** —— 報名者以為報咗名，名單上冇佢個名。
+  現在這段在 `writeRow_()` 裡，三個位唔可以寫錯：
+  - **寄信一定要在鎖外。** `MailApp.sendEmail()` 可以跑幾秒，由頭鎖到尾（好自然
+    嘅寫法）會令所有提交排隊，`tryLock` 大量超時 —— **為咗防撞車而製造新故障**。
+  - **用 `tryLock(10000)` 而唔係 `waitLock()`。** `waitLock` 會無限等，一個卡死
+    嘅執行會拖死之後**所有**報名。取唔到鎖就回 `BUSY`，唔好 throw 原始
+    Apps Script 錯誤。
+  - **`releaseLock()` 一定要喺 `finally`。** 冇 `finally` 嘅話一次例外就永久鎖死
+    整個表單。
+  - `LockService` **唔需要新 OAuth scope**，`appsscript.json` 唔使改；但
+    `Code.gs` 改咗就要照 `deploy.ps1` 部署。
+- ⚠️ **`BUSY` 係前端重試嘅唯一依據，唔可以改成寫入之後才回。**
+  `Code.gs` 的 `BUSY_CODE` 與 `web/src/lib/submission.js` 的 `BUSY_CODE` 是
+  **兩份獨立副本**（Apps Script 讀不到前端檔案），改一邊要記得另一邊。前端收到
+  `BUSY` 會等 1 秒重試一次，所以 `BUSY` **必須發生在任何寫入之前**（現在是
+  `tryLock` 失敗，即 `appendRow` 之前）。若日後改成寫入之後才回，重試就會造出
+  **重複報名**。同理，**網絡層失敗（fetch 拋錯、非 2xx、非 JSON）一律唔重試**
+  —— 嗰種情況後端可能已經寫咗入，重試只會多一行。
+- ⚠️ **標題列（第 1 橫）由 `ensureHeader_()` 自動保護，但唔好改成保護整張表，
+  亦唔好喺介面設「編輯前先要求我核准」。**
+  - 保護整張表會逼 GAS 依賴「擁有者可繞過保護」呢個冇寫喺文件嘅行為；
+    `appendRow` 唔碰第 1 橫，所以**只**保護第 1 橫就夠，唔使假設。
+  - 「編輯前先要求我核准」會令 GAS 嘅寫入變成「待批准變更」，等於資料根本冇入
+    表 —— 症狀係畫面報名成功但試算表冇資料。
+  - **保護失敗唔可以令報名失敗**（`protectHeader_()` 吞掉所有例外只記錄）。
+    保護係防手滑，唔係報名嘅前置條件。
+  - ⚠️ **同「改 schema 後清空試算表重建標題列」有交互作用**：「選取全部 →
+    清除內容」**唔會**移除第 1 橫嘅保護，於是重建標題列會撞上「你無法編輯這個
+    範圍」。`unprotectHeader_()` 因此喺寫入標題列前先解除任何涵蓋第 1 橫嘅保護
+    （連人手保護嘅整張表都會解除），寫完再補上範圍保護。
 - **前端 `Content-Type` 必須是 `text/plain;charset=utf-8`，不能是 `application/json`。** JSON 的 POST 屬於 CORS 非簡單請求，瀏覽器會先送 OPTIONS 預檢，而 GAS 只把 GET/POST 派發給 `doGet`/`doPost`（寫了 `doOptions()` 也不會被呼叫），預檢拿到 405，**報名會完全送不出去且沒有錯誤訊息**。純文字內容型態屬於簡單請求，不需要預檢，後端照樣 `JSON.parse`。
 - Google 不允許從 `ContentService` 自訂 `Access-Control-Allow-Origin`，也讀不到 `Origin` 標頭 → **無法限制呼叫來源**。`/exec` 網址等同公開寫入端點，試算表不要放敏感資料。
 - `Code.gs` 必須以「附加在試算表上」的方式建立，才能用 `getActiveSpreadsheet()`。部署設定：執行身分「我」、誰可以存取「任何人」，網址要拿 `/exec` 不是 `/dev`。
