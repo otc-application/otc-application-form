@@ -25,8 +25,8 @@
  * 消失但回應仍是 ok:true**。鎖取不到時回 200 + {ok:false, code:"BUSY"}，
  * 前端會自動重試一次（BUSY 一定發生在寫入之前，所以重試不會產生重複列）。
  *
- * ⚠️ 鎖只包「讀標題列 → append 一列」，**寄信在鎖外**；用 tryLock 而非
- *    waitLock。改這段之前先讀 writeRow_() 的註解。
+ * ⚠️ 鎖只包「讀標題列 → append 一列」，**寄信在鎖外**、**補保護也在鎖外**；
+ *    用 tryLock 而非 waitLock，時限 5000 ms。改這段之前先讀 writeRow_() 的註解。
  *
  * ── 寄信 ────────────────────────────────────────────────────────────
  * 確認信用 MailApp 寄出，寄件人就是這個專案的執行身分（教堂的 Google 帳號），
@@ -71,15 +71,22 @@ const SERVICE_NAME = 'otc-application-form'
 /**
  * 落表互斥鎖（LockService）的等待時限，單位毫秒。
  *
- * 鎖只包住「讀標題列 → append 一列」，實際只需幾百毫秒，10 秒已經極寬鬆。
- * 之所以要一個上限而不是無限等：見下。
+ * 鎖只包住「讀標題列 → append 一列」，實際只需幾百毫秒；關鍵區段共 5 次試算表
+ * API 呼叫，5 秒等於每次可用 1000 毫秒，對通常 100～300 毫秒的回應有數倍餘裕。
+ *
+ * ⚠️ 這個數字是**UX 取捨**，不是正確性需求。調長只會延長使用者的痛苦，沒有
+ *    任何好處：前端最多嘗試兩次，調長後最壞等候是
+ *    `2 × LOCK_TIMEOUT_MS + 1000ms`（5 秒時為 11 秒；10 秒時是 21 秒，
+ *    使用者要盯著全屏遮罩「正在送出報名資料…」一分鐘，且無法取消）。
+ *    縮短則可能出現「假 BUSY」—— 但 BUSY 是**零寫入**、可安全重試的狀態，
+ *    頂多令使用者多等一次，兩邊的風險不對稱，因此偏向短 timeout。
  *
  * ⚠️ 刻意用 `tryLock()` 而**不是** `waitLock()`。waitLock 會一直等到鎖被釋放，
  *    一旦有執行卡死（試算表 API 逾時、MailApp 慢），之後**所有**報名都會堆在
  *    這裡逾時，變成「為了防撞車而製造新故障」。取不到鎖就回暫時性錯誤，
  *    讓前端自己重試，見 BUSY_CODE。
  */
-const LOCK_TIMEOUT_MS = 10000
+const LOCK_TIMEOUT_MS = 5000
 
 /**
  * 取不到落表鎖時回報的代碼，供前端判斷「可以安全重試」。
@@ -165,7 +172,14 @@ const QUOTA_NOTICE = '名額有限，每堂最多 12 位，新朋友及報 4 堂
 
 /** 部署後可用瀏覽器直接開啟 /exec 確認服務是否上線。 */
 function doGet() {
-  return jsonResponse_({ ok: true, service: SERVICE_NAME, sheet: describeSheet_() })
+  return jsonResponse_({
+    ok: true,
+    service: SERVICE_NAME,
+    sheet: describeSheet_(),
+    // ⚠️ busy 必須是 sheet 的**兄弟欄位**，不可塞進 sheet 裡：deploy.ps1 只讀
+    //    $json.sheet.lastColumn / lastRow，動 sheet 的欄位會影響部署健康檢查。
+    busy: busyStats_(),
+  })
 }
 
 /**
@@ -255,6 +269,7 @@ function doPost(e) {
     if (error && error.code === BUSY_CODE) {
       // 取不到鎖＝有人正在寫，資料一個字都還沒落地，因此可以安全重試。
       console.warn('[報名] 取不到落表鎖：' + errorMessage_(error))
+      recordBusy_()
       return jsonResponse_({ ok: false, code: BUSY_CODE, error: errorMessage_(error) })
     }
     return jsonResponse_({ ok: false, error: errorMessage_(error) })
@@ -276,21 +291,37 @@ function doPost(e) {
  *
  * ⚠️ 用 tryLock 而非 waitLock，理由見 LOCK_TIMEOUT_MS。
  *
+ * ⚠️ **標題列保護的「補上保護」步驟刻意放在鎖外。** 保護與 appendRow 的目標
+ *    位置無關，不需要序列化；而 `protectHeader_()` 會多呼叫一次
+ *    `getProtections()`，留在鎖內會白白吃掉鎖的時間預算（這也是
+ *    LOCK_TIMEOUT_MS 能壓到 5 秒的前提）。唯一例外是「試算表是空的、剛建立
+ *    標題列」那條路徑 —— 它的寫入必須與 appendRow 序列化，所以留在
+ *    ensureHeader_() 裡。
+ *
  * 取不到鎖時丟出帶 BUSY_CODE 的錯誤，且**發生在任何寫入之前**，所以前端重試
  * 不會產生重複列。
  */
 function writeRow_(headers, row) {
   var lock = LockService.getScriptLock()
   if (!lock.tryLock(LOCK_TIMEOUT_MS)) throw busyError_()
+  var header
+  var sheet
+  var lastRow
   try {
-    var sheet = getSheet_()
-    var header = ensureHeader_(sheet, headers)
+    sheet = getSheet_()
+    header = ensureHeader_(sheet, headers)
     sheet.appendRow(row)
-    return { headerCreated: header.created, lastRow: sheet.getLastRow() }
+    lastRow = sheet.getLastRow()
   } finally {
     // 必須放，否則例外路徑會把整個表單永久鎖死。
     lock.releaseLock()
   }
+
+  // 鎖外：補上保護（自我修復）。headerCreated 為 true 時 ensureHeader_ 已經
+  // 保護過，不必重複呼叫。
+  if (!header.created) protectHeader_(sheet, headers.length)
+
+  return { headerCreated: header.created, lastRow: lastRow }
 }
 
 /** 帶 BUSY_CODE 的錯誤，讓 doPost 能回出可供前端重試的回應。 */
@@ -298,6 +329,46 @@ function busyError_() {
   var error = new Error(BUSY_MESSAGE)
   error.code = BUSY_CODE
   return error
+}
+
+/**
+ * 累計取不到落表鎖的次數，讓擁有者知道「真的有發生過」。
+ *
+ * 為什麼需要：BUSY 目前只在 Apps Script 執行紀錄留一行 `console.warn`。若它
+ * 變成常見現象（例如鎖真的被懸住），沒有任何指標會發現 —— 而症狀是使用者看到
+ * 「系統忙碌中」，很容易被當成網路問題而查錯方向。`doGet` 的診斷回應會把這
+ * 個計數一併輸出。
+ *
+ * ⚠️ 寫入診斷資料**絕對不可以影響報名回應**：這裡吞掉所有例外僅記錄。
+ *    `PropertiesService.getScriptProperties()` 不需要宣告 OAuth scope
+ *    （需要的是 getUserProperties / getDocumentProperties），因此
+ *    appsscript.json 不用改。
+ */
+function recordBusy_() {
+  try {
+    var props = PropertiesService.getScriptProperties()
+    var count = Number(props.getProperty('busyCount') || 0) + 1
+    props.setProperties({
+      busyCount: String(count),
+      busyLastAt: new Date().toISOString(),
+    })
+    console.warn('[報名] 落表鎖忙碌累計第 ' + count + ' 次')
+  } catch (error) {
+    console.warn('[報名] 記錄落表鎖忙碌次數失敗：' + errorMessage_(error))
+  }
+}
+
+/** 讀取落表鎖忙碌的統計，供 doGet 診斷用。未記錄過時回傳 count 0、lastAt null。 */
+function busyStats_() {
+  try {
+    var props = PropertiesService.getScriptProperties().getProperties()
+    return {
+      count: Number(props.busyCount || 0),
+      lastAt: props.busyLastAt || null,
+    }
+  } catch (error) {
+    return { error: errorMessage_(error) }
+  }
 }
 
 /* ---------------------------------------------------------------- 內部函式 */
@@ -547,10 +618,8 @@ function ensureHeader_(sheet, headers) {
     )
   }
 
-  // 標題列正確也補上保護（自我修復）：這份試算表可能建立於本機制之前，
-  // 或者有人手動解除過。讓「改壞標題列就拒絕寫入」這個保護不只活在程式碼裡。
-  protectHeader_(sheet, width)
-
+  // 標題列正確的「補上保護」由 writeRow_() 在**鎖外**呼叫（見其註解）：
+  // 保護與 appendRow 的目標無關，不該佔用鎖的時間預算。
   return { created: false }
 }
 

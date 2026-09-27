@@ -216,17 +216,37 @@ npm run preview  # 預覽 dist/
   `appendRow` 再依位置寫入），Apps Script **不保證**兩次呼叫之間沒有另一個
   執行插入。兩個並行執行若都讀到同一個 `lastRow`，就會寫進同一橫，其中一筆
   報名會**靜默消失，但回應仍是 `ok:true`**：報名者以為已報名，名單上卻沒有其
-  姓名。此段現已在 `writeRow_()` 內，三個位置不可寫錯：
+  姓名。此段現已在 `writeRow_()` 內，**四個位置不可寫錯**：
   - **寄信務必在鎖外。** `MailApp.sendEmail()` 可能執行數秒，若從頭鎖到尾
     （看似自然的寫法）會使所有提交排隊、`tryLock` 大量逾時，等於為防止碰撞而
     製造新故障。
-  - **採用 `tryLock(10000)` 而非 `waitLock()`。** `waitLock` 會無限等待，一個
+  - **「補上保護」也要在鎖外。** `protectHeader_()` 會多呼叫一次
+    `getProtections()`，而保護與 `appendRow` 的目標位置無關，不需要序列化。
+    這是 `LOCK_TIMEOUT_MS` 能壓到 5 秒的前提。唯一例外是「試算表為空、剛建立
+    標題列」那條路徑 —— 它的寫入必須與 `appendRow` 序列化，故留在
+    `ensureHeader_()` 裡。**若日後把保護移回鎖內，務必重新評估鎖的時限。**
+  - **採用 `tryLock(5000)` 而非 `waitLock()`。** `waitLock` 會無限等待，一個
     卡住的執行會拖垮之後**所有**報名。取不到鎖時回覆 `BUSY`，不要拋出原始
-    Apps Script 錯誤。
+    Apps Script 錯誤。這個數字是 **UX 取捨，不是正確性需求**：前端最多嘗試兩次，
+    最壞等候是 `2 × 5000 + 1000 = 11 秒`（沿用 10000 時是 21 秒，使用者要盯著
+    無法取消的全屏遮罩一分鐘且換不到好處）。鎖內 5 次試算表 API 呼叫等於每次
+    1000 毫秒預算。
   - **`releaseLock()` 必須置於 `finally`。** 若沒有 `finally`，一次例外就會
     永久鎖死整個表單。
   - `LockService` **不需要新增 OAuth scope**，`appsscript.json` 不必修改；但
     `Code.gs` 修改後仍須照 `deploy.ps1` 部署。
+- ⚠️ **BUSY 的使用者訊息不可套用「報名失敗：」前綴。** `submission.js` 的
+  `BUSY_USER_MESSAGE` 刻意獨立於一般錯誤：BUSY 情境下**沒有任何失敗、沒有任何
+  資料遺失**（後端確定在 `appendRow` 之前中止），說「失敗」會令使用者誤以為要
+  重填，反而提高重複報名的風險。訊息內的電話取自 `eventInfo.contact.phone`，
+  與頁尾同一來源。若使用者要求改文案，記得保留「已保留、請勿重複填寫」的
+  提示 —— 沒有它，使用者很可能會重新輸入兒童區與電話欄。
+- ⚠️ **忙碌次數診斷不可影響報名回應。** `recordBusy_()` 與 `busyStats_()` 都
+  吞掉所有例外；`doGet` 的 `busy` 必須是 `sheet` 的**兄弟欄位**，不可塞進
+  `sheet` 裡（`deploy.ps1` 只讀 `$json.sheet.lastColumn` 與 `lastRow`）。
+  `PropertiesService.getScriptProperties()` **不需要** OAuth scope（需要的是
+  `getUserProperties` / `getDocumentProperties`），因此 `appsscript.json` 不用
+  改 —— 部署後應確認 manifest 未被更動。
 - ⚠️ **`BUSY` 是前端重試的唯一依據，不可改成在寫入之後才回覆。**
   `Code.gs` 的 `BUSY_CODE` 與 `web/src/lib/submission.js` 的 `BUSY_CODE` 是
   **兩份獨立副本**（Apps Script 讀不到前端檔案），修改其中一邊時必須同步另一
