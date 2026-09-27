@@ -9,6 +9,17 @@ export const eventInfo = {
   tagline: '給自己 2.5 小時，把混亂與忙碌的心情整頓',
   organizer: '基督教宣道會愛荃堂',
   venue: '新界荃灣青山公路—荃灣段 117-121 號蘊崇大廈 1 樓',
+  /**
+   * 地點地圖連結。「活動資訊 → 地點」會渲染成連到地圖的連結。
+   *
+   * 換活動時必須一併更新：留空則該行退回純文字（不會渲染成壞掉的連結 ——
+   * `href={undefined}` 會變成有底線但撳不到、也非 focusable 的假連結）。
+   *
+   * 地址本身來自 ../feed_prompt/Description.md 的「地點」；連結網域選
+   * OpenStreetMap，不用 Google Maps 是為了不經任何轉址服務。
+   */
+  mapUrl:
+    'https://www.openstreetmap.org/?mlat=22.370661&mlon=114.119571&zoom=19#map=19/22.370661/114.119571&layers=N',
   quota: '每堂最多 12 位（名額有限，新朋友及報 4 堂或以上優先考慮）',
   eligibility: ['男／女成年人（65 歲以下）', '無需任何相關的基礎知識'],
   contact: { phone: '24114170', person: '劉姑娘' },
