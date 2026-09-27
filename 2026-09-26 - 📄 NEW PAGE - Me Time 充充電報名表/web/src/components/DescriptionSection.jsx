@@ -2,7 +2,22 @@ import { courseGroups, eventInfo } from '../data/event.js'
 
 const infoItems = [
   { label: '主辦單位', value: eventInfo.organizer },
-  { label: '地點', value: eventInfo.venue },
+  {
+    label: '地點',
+    value: eventInfo.mapUrl ? (
+      <a
+        href={eventInfo.mapUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold text-rose-700 underline decoration-rose-300 underline-offset-4 hover:decoration-rose-600"
+      >
+        {eventInfo.venue}
+        <span className="sr-only">（在地圖中開啟）</span>
+      </a>
+    ) : (
+      eventInfo.venue
+    ),
+  },
   { label: '名額', value: eventInfo.quota },
   { label: '資格', value: eventInfo.eligibility.join('、') },
   {
