@@ -2,6 +2,8 @@ import { useState } from 'react'
 import DescriptionSection from './components/DescriptionSection.jsx'
 import RegistrationForm from './components/RegistrationForm.jsx'
 import SuccessScreen from './components/SuccessScreen.jsx'
+import { showSuccessPopup } from './components/SuccessPopup.jsx'
+import PrintableSummary from './components/PrintableSummary.jsx'
 import LoadingOverlay from './components/LoadingOverlay.jsx'
 import { formSchema } from './data/formSchema.js'
 import { eventInfo } from './data/event.js'
@@ -48,6 +50,7 @@ export default function App() {
       setSubmitted(values)
       setStatus('success')
       window.scrollTo({ top: 0, behavior: 'smooth' })
+      showSuccessPopup(values)
     } catch (error) {
       console.error('[報名表] 送出失敗：', error)
       setStatus('idle')
@@ -92,6 +95,8 @@ export default function App() {
           </p>
         </footer>
       </main>
+
+      {submitted && <PrintableSummary values={submitted} />}
     </div>
   )
 }

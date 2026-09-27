@@ -87,7 +87,24 @@ npm run preview  # 預覽 dist/
 - 本機 Node v24、CI Node 20 — 依賴版本要挑兩者都跑得過的。
 - `npm install` 會因 npm 11 的 `allow-scripts` 擋下 esbuild 的 postinstall，需 `npm approve-scripts esbuild`，否則 vite 無法啟動。
 
+## 文案與內容的踩雷點
+
+- **`pricing[].deadline` 只放純日期**（`10 月 18 日`），**絕對不要塞整句**。這兩句會被接在「…截止 {deadline}」後面組句子，一旦裡面自帶「前報名」或「截止報名日期」，就會組出「一般收費截止 截止報名日期 10 月 25 日」這種重複詞。這個錯誤實際上線過，畫面上的收費提示就是錯的。
+- **收費提示有三個地方要顯示**（成功畫面、報名成功彈窗、確認信），所以由 `web/src/data/event.js` 的 `paymentNotice` 統一組出，不要各寫各的。
+- ⚠️ **`event.js` 的 `paymentNotice` 與 `gas/Code.gs` 的 `PAYMENT_NOTICE` 是兩份獨立副本** —— Apps Script 讀不到前端的檔案。改收費日期／文案時**兩個檔案都要改**，這個不一致不會讓任何程式報錯，只是信上與畫面上的日期不同。
+- 「報名資料」清單由 `web/src/lib/summary.js` 的 `buildSummaryRows()` 組出，成功畫面、彈窗、列印區三處共用。不要在某個元件裡自己從 `values` 拼一份，會漂移。
+
+## 報名成功彈窗與 PDF 匯出
+
+- **PDF 匯出走 `window.print()`，不要在前端用 jsPDF 生檔。** jsPDF 內建字型只含 Latin-1，**中文字會全部變成空白方塊**；要修就得內嵌 CJK 字型檔（5～10 MB base64，會把 bundle 撐大一個數量級）。瀏覽器「另存為 PDF」本來就用系統 CJK 字型排版，結果正確、代價只是多按一下。`PrintableSummary.jsx` 檔頭有說明，不要「順手」換成 jsPDF。
+- ⚠️ **`PrintableSummary` 必須用 `createPortal` 掛在 `document.body` 直屬層。** 列印規則是 `body > *:not(#print-area) { display: none !important }`，而 App 的 root 是 body 的直接子層 —— root 被藏掉時，放在 root 裡的列印區會跟著消失，**結果是「按了匯出，PDF 全白」且沒有任何錯誤**。不要為了「整理結構」把它移回 App 裡。
+- 列印樣式要連 **SweetAlert2 的容器一起藏**：它是動態 append 到 `body` 的，用 `body > *:not(#print-area)` 才蓋得住。直接印彈窗會印出一張被置中縮小的對話框。
+- **SweetAlert2 的 `htmlContent` 不會消毒**，等於 `innerHTML`。使用者輸入（姓名、電話、電郵）必須經 `escapeHtml_()`（GAS）/`escapeHtml()`（`summary.js`）才插進去。雖然是自己填自己看，危害有限，但漏掉就是個真實的 XSS sink。
+- SweetAlert2 內容裡用的 Tailwind class 必須是**完整字面值**，不能是字串拼出來的 —— Tailwind v4 是掃描原始碼字串來產生 CSS，拼出來的 class 不會被生成，結果就是彈窗沒樣式。
+- `web/src/lib/summary.js` 的 `escapeHtml()` 與 `gas/Code.gs` 的 `escapeHtml_()` 是兩份實作（前後端無法共用模組），改一邊時記得看另一邊。
+
 ## 後端網址（VITE_GAS_API_URL）
+
 
 - 後端網址在**建置時**由 Vite 內嵌，沒有 runtime 設定。改了網址必須讓新的建置跑一次。
 - 兩層來源（Vite 載入順序，後者優先）：`web/.env.production`（**已 commit**，正式建置用）→ `web/.env.local`（gitignored，本機覆寫用）。`npm run dev` 只讀 `.env` / `.env.local`，**不讀** `.env.production`。

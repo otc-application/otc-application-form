@@ -15,13 +15,13 @@ export const eventInfo = {
   pricing: [
     {
       label: '早鳥優惠價',
-      deadline: '10 月 18 日前報名',
+      deadline: '10 月 18 日',
       highlight: true,
       items: ['$150 / 4 堂', '$200 / 6 堂'],
     },
     {
       label: '截止報名日收費',
-      deadline: '截止報名日期 10 月 25 日',
+      deadline: '10 月 25 日',
       highlight: false,
       items: ['$200 / 4 堂', '$300 / 6 堂'],
     },
@@ -32,6 +32,19 @@ export const eventInfo = {
     '名額有限，新朋友優先考慮。',
   ],
 }
+
+/**
+ * 收費截止提示。
+ *
+ * 三個地方都要顯示同一句話（成功畫面、報名成功彈窗、確認信），所以在這裡
+ * 組好一次，不要各寫各的。pricing[].deadline 只放**純日期**（「10 月 18 日」），
+ * 不要在裡面塞「前報名」「截止報名日期」這種整句 —— 否則任何把它接在
+ * 「截止」後面的句子都會出現「截止截止報名日期」這種重複詞。
+ *
+ * 換活動時記得同步改 gas/Code.gs 的 PAYMENT_NOTICE：Apps Script 讀不到
+ * 這個檔案，確認信的文案是另一份副本。
+ */
+export const paymentNotice = `早鳥優惠截止 ${eventInfo.pricing[0].deadline}前報名，一般收費截止 ${eventInfo.pricing[1].deadline}。`
 
 /** 各課程／班別詳細介紹，對應 Description.md 的三個章節。 */
 export const courseGroups = [

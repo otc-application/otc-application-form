@@ -1,5 +1,5 @@
-import { eventInfo } from '../data/event.js'
-import { EMAIL_CONSENT, sessionDates } from '../data/formSchema.js'
+import { eventInfo, paymentNotice } from '../data/event.js'
+import { buildSummaryRows } from '../lib/summary.js'
 
 function SummaryRow({ label, children }) {
   return (
@@ -10,23 +10,8 @@ function SummaryRow({ label, children }) {
   )
 }
 
-function formatChildren(byDate) {
-  const parts = []
-  for (const date of sessionDates) {
-    const list = byDate?.[date.value] ?? []
-    if (list.length === 0) continue
-    const text = list
-      .map((child) => (child.age ? `${child.name}（${child.age}歲）` : child.name))
-      .filter((name) => name && !name.startsWith('（'))
-      .join('、')
-    if (text) parts.push(`${date.value}：${text}`)
-  }
-  return parts
-}
-
 export default function SuccessScreen({ values, onReset }) {
-  const sessions = values.sessions ?? []
-  const children = formatChildren(values.childrenByDate)
+  const rows = buildSummaryRows(values)
 
   return (
     <section
@@ -63,44 +48,26 @@ export default function SuccessScreen({ values, onReset }) {
             報名資料
           </h3>
           <dl className="mt-2">
-            <SummaryRow label="參加者姓名">{values.attendeeName}</SummaryRow>
-            <SummaryRow label="聯絡電話">{values.phone}</SummaryRow>
-            <SummaryRow label="所屬類別">{values.category}</SummaryRow>
-            {values.referrerName && (
-              <SummaryRow label="介紹人">{values.referrerName}</SummaryRow>
-            )}
-            {(values.believerGroup || values.memberGroup) && (
-              <SummaryRow label="小組名稱">
-                {values.believerGroup || values.memberGroup}
+            {rows.map((row) => (
+              <SummaryRow key={row.label} label={row.label}>
+                {row.lines ? (
+                  <ul className="space-y-1">
+                    {row.lines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  row.value
+                )}
               </SummaryRow>
-            )}
-            <SummaryRow label="參加場次">
-              {sessions.length > 0 ? sessions.join('、') : '未選擇'}
-            </SummaryRow>
-            {values.emailNotify && (
-              <SummaryRow label="電郵通知">
-                {values.emailNotify === EMAIL_CONSENT.yes
-                  ? `需要（${values.email}）`
-                  : values.emailNotify}
-              </SummaryRow>
-            )}
-            {children.length > 0 && (
-              <SummaryRow label="兒童區">
-                <ul className="space-y-1">
-                  {children.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              </SummaryRow>
-            )}
+            ))}
           </dl>
         </div>
 
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900">
           <p>
             <span className="font-semibold">請留意：</span>
-            早鳥優惠截止 {eventInfo.pricing[0].deadline}，一般收費截止{' '}
-            {eventInfo.pricing[1].deadline}。
+            {paymentNotice}
           </p>
         </div>
 

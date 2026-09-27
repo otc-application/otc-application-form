@@ -7,6 +7,52 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-27
+
+### Added
+
+- **報名成功彈窗（SweetAlert2）**：送出成功時跳出，內容與成功畫面同源 ——
+  報名成功標題、感謝詞、**報名資料逐欄明細**、收費截止提示。底部兩個按鈕：
+  「匯出報名資料（PDF）」與「完成」。設 `reverseButtons`，讓確認鈕（匯出 PDF）
+  排在左側、取消鈕（完成）排在右側 —— 與 SweetAlert2 預設的左右相反。
+- 彈窗可按「匯出報名資料（PDF）」或空白處關閉；**只有按匯出鈕才跳列印**，
+  關閉彈窗不會誤觸發列印視窗。
+- `PrintableSummary`：專供列印／存檔的區塊，含報名成功訊息、報名資料
+  表格、收費提示與主辦單位聯絡方式。平常不顯示，僅在 `@media print`
+  生效，因此不會干擾畫面。
+
+### Fixed
+
+- **修正收費截止提示的「截止截止報名日期」重複詞**。原本把
+  `pricing[].deadline` 寫成整句（「10 月 18 日前報名」與
+  「截止報名日期 10 月 25 日」），再接在「…截止 {deadline}」後面組句子，
+  線上實際顯示的是 `一般收費截止 截止報名日期 10 月 25 日`。現在
+  `deadline` 只放**純日期**，句子改由 `event.js` 的 `paymentNotice`
+  統一組出，並在三處（成功畫面、彈窗、確認信）共用同一句。
+  描述區的收費卡片副標改為「截止 {deadline}」，同樣只出現一次「截止」。
+- 列印樣式原本會把整頁輸出成空白：列印規則是
+  `body > *:not(#print-area) { display: none }`，而 `PrintableSummary`
+  當時掛在 App 的 root 底下，root 被藏掉時列印區也跟著消失。現在改用
+  `createPortal` 把列印區掛到 `document.body` 直屬層，並加註說明原因，
+  避免日後有人把它「整理」回 App 裡。
+
+### Changed
+
+- `web/src/lib/summary.js`：抽出 `buildSummaryRows()`，讓成功畫面、彈窗、
+  列印區三個地方的「報名資料」資料來源單一化。兒童區以多行呈現
+  （原本 `SuccessScreen` 內嵌一份，彈窗與列印區會各自漂移）。
+- 引入 `sweetalert2`（唯一新增的 runtime 依賴）。
+- 確認信內容改為與畫面「報名成功」一致：加上成功圖示、報名資料逐欄明細、
+  收費截止提示，並改用 `【活動名】報名成功` 為主旨。
+- 確認信改為 CID 內嵌成功圖示（base64 PNG）。不用外部圖片網址，因為郵件
+  客戶端預設會擋掉遠端圖片，會顯示破圖。
+- 確認信同時提供 `htmlBody` 與純文字 `body`（降級備援）。
+- `gas/Code.gs`：寄信明細改為走訪標題列產生（`buildEmailDetails_()`），
+  schema 加欄位時確認信自動跟著多一列；略過欄位集中列在
+  `EMAIL_DETAIL_EXCLUDE`。新增 `escapeHtml_()`，使用者輸入不再未經逸出就
+  插進 HTML（一個 `<img src=x onerror=...>` 的姓名會變成惡意郵件）。
+- 移除因改寫內文而變成死碼的 `ATTENDEE_NAME_COLUMN`、`SESSIONS_COLUMN`。
+
 ## [0.4.2] - 2026-09-27
 
 ### Fixed

@@ -137,6 +137,24 @@ sequenceDiagram
 
 `emailNotify`（電郵通知）勾「需要」且 `email` 有值時，`sendConfirmationEmail_()` 會用 `MailApp` 寄一封報名確認信給報名者本人。
 
+內文與畫面上的「報名成功」一致，包含：成功圖示、報名成功訊息、**報名資料
+逐欄明細**、收費截止提示、查詢電話。
+
+- 明細由 `buildEmailDetails_()` **走訪標題列**產生，不是逐一 hardcode 欄位，
+  所以 `formSchema.js` 加欄位時確認信會自動跟著多一列。要略過的欄位寫在
+  `EMAIL_DETAIL_EXCLUDE`：目前是 `提交時間`（與收信當下重複）、`電郵通知`
+  與 `電郵地址`（收件人就是那個地址，寫在信上只會多一份副本）。
+- 成功圖示是 **CID 內嵌**的 base64 PNG（`SUCCESS_ICON_BASE64`）。不要改成
+  外部圖片網址 —— 郵件客戶端預設擋遠端圖片，會變成破圖。GAS 沒有檔案系統，
+  所以圖片只能放在 `Code.gs` 裡。
+- 同時提供 `body`（純文字）與 `htmlBody`（HTML）。多數客戶端顯示 `htmlBody`，
+  純文字是給不支援 HTML 的客戶端降級用。
+- 所有使用者輸入都經過 `escapeHtml_()` 才插進 HTML。姓名欄若不逸出，
+  一個叫 `<img src=x onerror=...>` 的姓名就會變成寄給自己的惡意郵件。
+- 收費提示是 `Code.gs` 裡的 `PAYMENT_NOTICE`，**與
+  `web/src/data/event.js` 的 `paymentNotice` 是兩份獨立副本**（Apps Script
+  讀不到前端檔案）。改收費日期時兩個都要改。
+
 ```mermaid
 flowchart TD
     A["sendConfirmationEmail_(headers, row)"] --> B{"電郵通知欄 = 需要？"}
