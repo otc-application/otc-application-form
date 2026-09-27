@@ -1,4 +1,5 @@
 import { childrenColumnPrefix, formSchema } from '../data/formSchema.js'
+import { eventInfo } from '../data/event.js'
 import { GAS_API_URL, isGasConfigured, SUBMIT_ERROR_MESSAGE } from '../config.js'
 
 /** 提交時間欄位名稱。 */
@@ -190,12 +191,29 @@ const BUSY_RETRY_DELAY_MS = 1000
 const BUSY_MAX_ATTEMPTS = 2
 
 /**
+ * 取不到落表鎖、且重試也用盡時顯示給使用者的訊息。
+ *
+ * ⚠️ 刻意**不**套用「報名失敗：」前綴（一般錯誤才加）。BUSY 情境下**沒有任何
+ * 失敗，也沒有任何資料遺失** —— 後端確定在 appendRow 之前就中止了，說「失敗」
+ * 會令使用者誤以為要重填。同一段話也要說明「已填內容保留」，否則使用者可能
+ * 重新輸入一遍（兒童區與電話欄尤其麻煩），反而提高重複報名的機會。
+ *
+ * 電話取自 eventInfo.contact.phone，與頁尾的查詢電話同一來源，不會漂移。
+ */
+const BUSY_USER_MESSAGE =
+  `系統忙碌中，請稍候再按一次「送出報名資料」。你填寫的內容已保留，` +
+  `請勿重複填寫；若持續出現，請致電 ${eventInfo.contact.phone} 協助。`
+
+/**
  * 送出報名資料到 GAS Web App。
  *
  * 注意：GAS 的 doPost 即使內部錯誤也會回 200，所以除了 HTTP 狀態碼
  * 還要檢查回應 JSON 的 ok 欄位。
+ *
+ * `options.onRetry` 在**即將重試前**呼叫一次，用途是讓 UI 顯示「系統繁忙，
+ * 正在重試…」，否則使用者只會對著全屏遮罩等待，不確定是否卡死。
  */
-export async function submitApplication(values, schema = formSchema) {
+export async function submitApplication(values, schema = formSchema, options = {}) {
   if (!isGasConfigured) {
     throw new Error(
       '尚未設定報名 API（VITE_GAS_API_URL），請聯絡活動負責人協助報名。',
@@ -213,10 +231,12 @@ export async function submitApplication(values, schema = formSchema) {
     payload = await postOnce_(body)
     if (payload?.ok || !isBusy_(payload) || attempt >= BUSY_MAX_ATTEMPTS) break
     console.warn(`[報名] 後端忙碌中，第 ${attempt} 次嘗試，共 ${BUSY_MAX_ATTEMPTS} 次`)
+    options.onRetry?.(attempt)
     await sleep_(BUSY_RETRY_DELAY_MS)
   }
 
   if (!payload?.ok) {
+    if (isBusy_(payload)) throw new Error(BUSY_USER_MESSAGE)
     throw new Error(payload?.error ? `報名失敗：${payload.error}` : SUBMIT_ERROR_MESSAGE)
   }
 
