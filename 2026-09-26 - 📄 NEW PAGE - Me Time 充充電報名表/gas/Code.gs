@@ -90,19 +90,25 @@ const CONTACT_PERSON = '劉姑娘'
 const PAYMENT_NOTICE = '早鳥優惠截止 10 月 18 日前報名，一般收費截止 10 月 25 日。'
 
 /**
- * 報名成功圖示（inline base64 PNG），以 CID 內嵌。
+ * ⚠️ 確認信**刻意不放任何圖片**，不要再加回來。
  *
- * 為什麼不用外部圖片網址：郵件客戶端預設會擋掉遠端圖片（預設不顯示，QQ
- * 郵件、Outlook 桌面版尤其明顯），寄出去會看到一個破圖。內嵌 CID 附件是
- * 唯一在各家客戶端都穩定的做法 —— GAS 沒有檔案系統，所以圖片必須放在
- * 這裡當 base64。
+ * 曾經用 CID 內嵌成功圖示（`MailApp.sendEmail({ ..., inlineImages: [...] })`
+ * 搭配 `htmlBody` 裡的 `<img src="cid:...">`），結果每一封信都寄不出去：
  *
- * 這是刻意生成的扁平色小圖（96×96、1.9 KB），不是照片：扁平色 PNG 壓得
- * 極小，base64 只佔約 2.5 KB，不會讓 Code.gs 失控。
+ *   [報名] 確認信未寄出： 下列引數無效：inlineImages
+ *
+ * 原因是 **`inlineImages` 不是 `MailApp` 的參數**。它是 Gmail API
+ * `users.messages.send` 的欄位，`MailApp.sendEmail()` 只接受
+ * `to / subject / body / htmlBody / replyTo / cc / bcc / attachments /
+ * name / replyToName` 等。傳入未知引數不會被忽略，而是直接拋錯。
+ *
+ * 為什麼這個錯很難察覺：寄信失敗被刻意降級成不影響報名（見檔頭說明），
+ * 所以報名照樣成功、畫面照樣跳彈窗，只有當事人的信箱裡什麼都沒有。
+ * 順帶一提，`<img src="cid:...">` 在 `MailApp` 底下本來也不會有對應的
+ * 附件可解析，就算參數過得去也只會是一個破圖。
+ *
+ * 真的需要視覺元素時，唯一穩定的做法是改成文字或表格樣式，不要碰圖片。
  */
-const SUCCESS_ICON_CID = 'otc-success-icon'
-const SUCCESS_ICON_BASE64 =
-  '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'
 
 
 /** 部署後可用瀏覽器直接開啟 /exec 確認服務是否上線。 */
@@ -244,18 +250,6 @@ function sendConfirmationEmail_(headers, row) {
     subject: '【' + EVENT_TITLE + '】報名成功',
     body: body,
     htmlBody: html,
-    inlineImages: [
-      {
-        imageBlob: Utilities.newBlob(
-          Utilities.base64Decode(SUCCESS_ICON_BASE64),
-          'image/png',
-          'success.png'
-        ),
-        mimeType: 'image/png',
-        filename: 'success.png',
-        contentId: SUCCESS_ICON_CID,
-      },
-    ],
   })
 
   return { status: 'sent', to: recipient }
@@ -321,10 +315,7 @@ function buildEmailHtml_(details) {
 
   return (
     '<div style="font-family:\'Noto Sans TC\',\'PingFang TC\',\'Microsoft JhengHei\',sans-serif;color:#1c1917;max-width:520px;">' +
-    '<img src="cid:' +
-    SUCCESS_ICON_CID +
-    '" width="56" height="56" alt="報名成功" style="display:block;border:0;">' +
-    '<h1 style="font-size:20px;margin:12px 0 0;">報名成功！</h1>' +
+    '<h1 style="font-size:20px;margin:0;">報名成功！</h1>' +
     '<p style="font-size:15px;line-height:1.7;margin:8px 0 0;">感謝您報名<span style="font-weight:600;color:#e11d48;text-decoration:underline;">「' +
     escapeHtml_(EVENT_TITLE) +
     '」</span>。我們會以電話聯絡確認，請留意來電。</p>' +
