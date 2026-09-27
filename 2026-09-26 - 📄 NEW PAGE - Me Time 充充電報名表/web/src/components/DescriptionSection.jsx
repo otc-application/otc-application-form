@@ -1,19 +1,48 @@
 import { courseGroups, eventInfo } from '../data/event.js'
 
+/**
+ * 外部連結：新分頁開啟，附讀屏用的提示文字。
+ *
+ * ⚠️ **必須用 function 宣告**（function declaration 會 hoist），不能用
+ *    `const` 箭嘴：底下的 `infoItems` 是模組層級 const，在 import 階段就
+ *    求值並呼叫這個元件。若改成 const 箭嘴，呼叫時會撞 TDZ → 整頁白屏
+ *    （ReferenceError: Cannot access 'ExternalLink' before initialization），
+ *    而且 **Vite build 照樣編譯通過**，只有執行時才爆。
+ *
+ * 樣式與同檔案的「查詢電話」連結同組；`tel:` 連結刻意不用這個元件
+ * （撥電話不該開新分頁）。
+ */
+function ExternalLink({ href, hint, children }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-semibold text-rose-700 underline decoration-rose-300 underline-offset-4 hover:decoration-rose-600"
+    >
+      {children}
+      <span className="sr-only">{hint}</span>
+    </a>
+  )
+}
+
 const infoItems = [
-  { label: '主辦單位', value: eventInfo.organizer },
+  {
+    label: '主辦單位',
+    value: eventInfo.organizerUrl ? (
+      <ExternalLink href={eventInfo.organizerUrl} hint="（在教會網站開啟）">
+        {eventInfo.organizer}
+      </ExternalLink>
+    ) : (
+      eventInfo.organizer
+    ),
+  },
   {
     label: '地點',
     value: eventInfo.mapUrl ? (
-      <a
-        href={eventInfo.mapUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="font-semibold text-rose-700 underline decoration-rose-300 underline-offset-4 hover:decoration-rose-600"
-      >
+      <ExternalLink href={eventInfo.mapUrl} hint="（在地圖中開啟）">
         {eventInfo.venue}
-        <span className="sr-only">（在地圖中開啟）</span>
-      </a>
+      </ExternalLink>
     ) : (
       eventInfo.venue
     ),
