@@ -7,6 +7,54 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-27
+
+### Changed
+
+- **落表鎖的等待時限由 10 秒縮短至 5 秒。** 這個數字是 UX 取捨，不是正確性需求：
+  鎖只包覆幾百毫秒的操作，前端最多嘗試兩次，因此最壞等候是
+  `2 × LOCK_TIMEOUT_MS + 1000ms` —— 沿用 10 秒時是 21 秒，使用者要盯著無法取消的
+  全屏遮罩一分鐘且換不到任何好處；改為 5 秒後是最壞 11 秒。縮短可能帶來「假
+  BUSY」，但 BUSY 是零寫入、可安全重試的狀態，頂多令使用者多等一次，兩邊的
+  風險不對稱。
+- **標題列「補上保護」的步驟由鎖內移到鎖外**（`ensureHeader_()` 的標題列吻合
+  路徑改為由 `writeRow_()` 在釋放鎖之後呼叫）。保護與 `appendRow` 的目標位置
+  無關，不需要序列化，而 `protectHeader_()` 會多呼叫一次 `getProtections()`，
+  留在鎖內只會吃掉鎖的時間預算 —— 這正是能把時限壓到 5 秒的前提。唯一例外是
+  「試算表為空、剛建立標題列」那條路徑，其寫入必須與 `appendRow` 序列化，仍
+  留在鎖內。**若日後把保護移回鎖內，務必重新評估鎖的時限。**
+
+### Added
+
+- **重試期間顯示進度提示。** `submitApplication()` 新增選用參數
+  `options.onRetry`，在即將重試前呼叫一次；`App.jsx` 以 `submitNotice` 承接並傳給
+  `LoadingOverlay` 的 `notice` prop，畫面會由「正在送出報名資料…」改為
+  「系統繁忙，正在重試…」。沒有它，使用者只會對著全屏遮罩等待最壞 11 秒，無法
+  分辨是在運作還是卡死。
+- **記錄並公開取不到落表鎖的次數。** `recordBusy_()` 把 `busyCount` 與
+  `busyLastAt` 寫入 script properties，`doGet` 的診斷回應新增兄弟欄位
+  `busy: { count, lastAt }`。此前 `BUSY` 只在 Apps Script 執行紀錄留一行
+  `console.warn`，若演變成常見現象（例如鎖真的被懸住）不會有任何指標發現，而
+  症狀很容易被誤判為網路問題。
+  `PropertiesService.getScriptProperties()` 不需要 OAuth scope，
+  `appsscript.json` 未更動。
+
+### Fixed
+
+- **BUSY 的使用者訊息不再套用「報名失敗：」前綴。** `submission.js` 新增
+  `BUSY_USER_MESSAGE`。BUSY 情境下**沒有任何失敗、沒有任何資料遺失**（後端確定
+  在 `appendRow` 之前中止），說「失敗」會令使用者誤以為要重填，反而提高重複報名
+  的風險 —— 兒童區與電話欄重打最為麻煩。新訊息說明「內容已保留、請勿重複填寫」
+  並指向查詢電話（取自 `eventInfo.contact.phone`，與頁尾同一來源）。
+  判斷是否為 BUSY 仍照舊以 `code` 為主（`isBusy_()` 的 OR 條件不變）。
+
+### Notes
+
+- `doc/api.md` 的時序圖、落表互斥鎖段落與診斷端點範例已同步更新；`AGENTS.md`
+  的 GAS 踩雷點由「三個位置」更正為「四個位置」並補上鎖時限的取捨理由。
+- 尚未解決（非本次範圍）：診斷計數只有累計值，沒有分時段或平均等待時間；若
+  日後需要判斷「鎖是否真的被懸住」，應改為記錄各次耗時。
+
 ## [0.8.1] - 2026-09-27
 
 ### Documentation

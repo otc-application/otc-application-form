@@ -80,13 +80,14 @@ sequenceDiagram
         F->>G: POST /exec<br/>Content-Type: text/plain
         G->>G: parseBody_(e) → JSON.parse
         G->>G: requireStringArray_() × 2<br/>檢查長度一致
-        G->>G: LockService.tryLock(10000)
+        G->>G: LockService.tryLock(5000)
         alt 取不到鎖（有人正在落表）
             G-->>F: 200 { ok:false, code:"BUSY" }
-            F->>F: 等待 1 秒後重試一次
+            G->>G: recordBusy_() 累計次數<br/>（失敗不影響回應）
+            F->>F: 等待 1 秒後重試一次<br/>遮罩顯示「系統繁忙，正在重試…」
         else 取得鎖
             G->>S: getActiveSpreadsheet()
-            G->>S: ensureHeader_()（順帶保護第 1 橫）
+            G->>S: ensureHeader_()（標題列為空時順帶保護）
             alt 試算表為空
                 S-->>G: 寫入標題列<br/>headerCreated = true
             else 標題列已存在
@@ -100,6 +101,7 @@ sequenceDiagram
             G->>S: appendRow(row)
             S-->>G: 寫入成功
             G->>G: releaseLock()
+            G->>S: 鎖外補保護 protectHeader_<br/>（自我修復，失敗不影響報名）
             Note over G,M: 鎖已釋放，寄信是附加動作
             G->>G: sendConfirmationEmail_(headers, row)
             alt 電郵通知欄 = 需要 且有地址
@@ -425,7 +427,7 @@ flowchart LR
 | `欄位數量與資料列不符（headers N 欄，row M 欄）` | 前後端不一致 | 通常代表 `buildColumns` 與 `buildRow` 被改動其一 |
 | `找不到綁定的試算表，請確認本專案已附加在目標試算表上。` | 不是以容器 bound 建立 | 重新用「擴充功能 → Apps Script」建立 |
 | `試算表標題列與表單欄位順序不一致：第 N 欄應為「X」但目前是「Y」` | 改過 schema 但沒重建標題列 | 清空試算表或修正標題列 |
-| `系統忙碌中，請稍後再提交。` | 取不到落表鎖（有人正在寫入） | **暫時性**，前端已自動重試一次；連續出現就看 Apps Script 執行紀錄 |
+| `系統忙碌中，請稍後再提交。` | 取不到落表鎖（有人正在寫入） | **暫時性**，前端已自動重試一次；仍失敗時畫面改顯示 `BUSY_USER_MESSAGE`（不套「報名失敗：」前綴），並提示致電 `eventInfo.contact.phone`。累計次數見下節的 `busy` |
 
 失敗回應多了一個 `code` 欄位，目前只有 `BUSY` 一個值：
 
@@ -436,6 +438,24 @@ flowchart LR
 - `code` 讓前端分辨「值得重試」與「重試也沒用」。沒有 `code` 的錯誤全部不重試。
 - ⚠️ `BUSY` **只在完全沒有寫入任何資料時**回傳（`tryLock` 失敗發生在 `appendRow` 之前），所以前端重試不會產生重複列。這是 `writeRow_()` 與前端重試之間的隱含約定：若日後把 `BUSY` 改成寫入之後才回，重試就會造出重複報名。
 - 反過來，**網絡層的失敗（fetch 拋錯、非 2xx、回應非 JSON）一律不重試**：那種情況下後端可能已經寫入了，重試只會多一行。重複報名的風險高於讓使用者自己再撳一次。
+- ⚠️ 前端**不使用**後端的 `error` 文字來顯示 BUSY（改用 `submission.js` 的 `BUSY_USER_MESSAGE`）。理由：BUSY 情境下**沒有任何失敗、沒有任何資料遺失**，套上「報名失敗：」會誤導使用者重填，那才是真正提高重複報名風險的地方。`isBusy_()` 的判斷仍照舊以 `code` 為主。
+
+### 忙碌次數診斷
+
+`doGet` 的診斷回應在 `sheet` 之外多了一個兄弟欄位 `busy`：
+
+```json
+{ "ok": true, "service": "otc-application-form",
+  "sheet": { "name": "工作表1", "lastRow": 3, "lastColumn": 16 },
+  "busy": { "count": 0, "lastAt": null } }
+```
+
+- `count` 是取不到落表鎖的累計次數，`lastAt` 是最後一次發生的 ISO 8601 時間（未發生過時為 `null`）。
+- 資料存於 `PropertiesService.getScriptProperties()` 的 `busyCount` / `busyLastAt`，可用 Apps Script 編輯器的「專案設定 → 指令碼屬性」直接查看。
+- ⚠️ `busy` 必須是 `sheet` 的**兄弟欄位**，不可塞進 `sheet` 裡：`deploy.ps1` 只讀 `$json.sheet.lastColumn` 與 `$json.sheet.lastRow`，動 `sheet` 的欄位會影響部署健康檢查。
+- `recordBusy_()` 與 `busyStats_()` 都吞掉所有例外，**診斷資料寫入失敗不得影響報名回應**（`busyStats_()` 在屬性讀取失敗時回 `{ "error": … }`）。
+- 用途：沒有這個計數的話，`BUSY` 只在 Apps Script 執行紀錄留一行 `console.warn`；若它演變成常見現象（例如鎖真的被懸住），不會有任何指標發現，而症狀（使用者見到「系統忙碌中」）很容易被誤判為網路問題。
+- `PropertiesService.getScriptProperties()` **不需要** OAuth scope（需要的是 `getUserProperties` / `getDocumentProperties`），因此 `appsscript.json` 不用改。部署後應確認 manifest 未被更動。
 
 ### 前端重試路徑
 
@@ -447,14 +467,16 @@ flowchart TB
     C1 -->|"是"| OK["回傳 payload"]
     C1 -->|"否"| C2{"是 BUSY？<br/>code==='BUSY' 或 訊息含「忙碌」"}
     C2 -->|"否"| ERR["拋出 報名失敗：payload.error"]
-    C2 -->|"是，已用 2 次"| ERR
-    C2 -->|"是，仍有機會"| W["sleep 1000ms"] --> S
+    C2 -->|"是，已用 2 次"| ERR2["拋出 BUSY_USER_MESSAGE<br/>（不加「報名失敗：」）"]
+    C2 -->|"是，仍有機會"| CB["options.onRetry(attempt)<br/>遮罩改顯示「系統繁忙，正在重試…」"] --> W["sleep 1000ms"] --> S
 ```
 
-兩個細節：
+四個細節：
 
 - **body 只組一次**，重試送的是同一份 payload，所以「提交時間」欄不會因為重試而改變，試算表上看到的就是使用者按下去的時間。
 - `isBusy_()` 用 `code === 'BUSY' || 訊息含「忙碌」` 兩個條件取 OR。任一邊被改壞都還有另一邊守住 —— 重試若靜靜失效**不會報錯**，只是使用者平白見到一次紅字再去撳一次，這類沒有症狀的退化正是要防的東西。
+- `options.onRetry` 在**即將重試前**呼叫一次（`onRetry` 為選用參數，缺省時 `?.()` 安全略過）。沒有它，使用者只會對著全屏遮罩「正在送出報名資料…」等待最壞 11 秒，無法分辨是在運作還是卡死。
+- `options` 是第三個參數（`submitApplication(values, schema, options)`），向後相容。`App.jsx` 以 `submitNotice` state 承接，於 `handleSubmit` 開頭與 `handleReset` 清空；`LoadingOverlay` 只在有值時替換主標題，第二行「請勿關閉此頁面」兩種情況都適用。
 
 前端 `submitApplication()` 的四層防護（外層再套一個 `BUSY` 重試迴圈，見上節）：
 
@@ -467,8 +489,7 @@ flowchart TB
     C2 -->|"是"| C3{"response.json()<br/>可解析？"}
     C3 -->|"否"| M1
     C3 -->|"是"| C4{"payload.ok 為真？"}
-    C4 -->|"否"| M2["拋出 payload.error<br/>或 SUBMIT_ERROR_MESSAGE"]
-    C4 -->|"是"| OK["回傳 payload"]
+    C4 -->|"否"| M2["拋出 payload.error<br/>或 SUBMIT_ERROR_MESSAGE"]    C4 -->|"是"| OK["回傳 payload"]
 ```
 
 `SUBMIT_ERROR_MESSAGE` 是一般化訊息（`config.js`）；只有後端明確回傳 `error` 時才顯示具體原因。
@@ -484,25 +505,32 @@ flowchart TB
 ```mermaid
 flowchart LR
     A["doPost()"] --> B["writeRow_(headers, row)"]
-    B --> C{"tryLock(10000)"}
-    C -->|"失敗"| D["throw busyError_<br/>code = BUSY<br/>（未寫入任何資料）"]
+    B --> C{"tryLock(5000)"}
+    C -->|"失敗"| D["throw busyError_<br/>code = BUSY<br/>（未寫入任何資料）<br/>+ recordBusy_()"]
     C -->|"成功"| E["ensureHeader_() + appendRow()"]
     E --> F["finally: releaseLock()"]
-    F --> G["sendConfirmationEmail_()<br/>⚠️ 在鎖外"]
+    F --> G["protectHeader_() 補保護<br/>⚠️ 在鎖外"]
+    G --> H["sendConfirmationEmail_()<br/>⚠️ 在鎖外"]
 ```
 
-三個不能寫錯的地方：
+四個不能寫錯的地方：
 
 | 寫法 | 後果 |
 | --- | --- |
-| `tryLock(10000)` ✅ | 鎖只包幾百毫秒的操作，10 秒極寬鬆 |
+| `tryLock(5000)` ✅ | 鎖只包幾百毫秒的操作，5 秒已極寬鬆（見下方取捨） |
+| `tryLock(10000)` ⚠️ 可用但偏長 | 最壞等候變成 21 秒，使用者盯著無法取消的全屏遮罩一分鐘，換不到任何好處 |
 | `waitLock()` ❌ | 無限等待。一個卡死的執行會令**之後所有報名**都逾時 —— 為防撞車而製造新故障 |
 | 寄信在鎖外 ✅ | `MailApp` 可跑幾秒；由頭鎖到尾會令所有提交排隊，`tryLock` 大量超時 |
 | 寄信在鎖內 ❌ | 同上，且機率更高（寄信比落表慢得多） |
+| 補保護在鎖外 ✅ | 保護與 `appendRow` 的目標無關，不需要序列化；`getProtections()` 呼叫留在鎖內只會吃掉鎖的時間預算 |
 | `finally` 放鎖 ✅ | 例外路徑也會放 |
 | 沒有 `finally` ❌ | 一次例外就永久鎖死整個表單 |
 
-`LockService` **不需要新增 OAuth scope**，`appsscript.json` 不必改；但 `Code.gs` 改了就要照 `deploy.ps1` 部署。
+**`LOCK_TIMEOUT_MS` 是 UX 取捨，不是正確性需求。** 前端最多嘗試兩次，所以最壞等候是 `2 × LOCK_TIMEOUT_MS + 1000ms`：5 秒時 11 秒，10 秒時 21 秒。調長只延長使用者的痛苦，沒有好處；縮短則可能出現「假 BUSY」，但 BUSY 是**零寫入**、可安全重試的狀態，頂多令使用者多等一次 —— 兩邊的風險不對稱，因此偏向短 timeout。鎖內目前 5 次試算表 API 呼叫（`getLastRow`、逐欄比對、`appendRow`、`getLastRow`、`getRange(1,1).getValues`），5 秒等於每次 1000 毫秒預算，對通常 100～300 毫秒的回應有數倍餘裕。**若日後把保護移回鎖內，務必重新評估這個數字。**
+
+標題列為空時，「建立標題列 + 保護」是**唯一留在鎖內**的保護呼叫：它的寫入必須與 `appendRow` 序列化，否則兩個執行可能同時重建標題列。
+
+`LockService` 與 `PropertiesService.getScriptProperties()` 都**不需要新增 OAuth scope**，`appsscript.json` 不必改（但 `Code.gs` 改了就要照 `deploy.ps1` 部署，部署後應確認 manifest 未被更動）。
 
 ### 標題列保護（防人手改壞）
 
@@ -511,7 +539,7 @@ flowchart LR
 - 為什麼**不**保護整張表：`appendRow` 不碰第 1 橫，資料照樣寫得進去，因此不必依賴「擁有者可繞過保護」這個沒寫在文件裡的行為。整張表保護還會擋住人手修正個別資料。
 - 為什麼**不**手動在介面設「編輯前先要求我核准」：那會令 GAS 的寫入變成「待批准變更」，等於資料根本沒入表。
 - **保護失敗不會令報名失敗**：`protectHeader_()` 吞掉所有例外只記錄。保護是防手滑，不是報名的前置條件。
-- 已經存在的標題列也會補上保護（自我修復），所以這份試算表建立於本機制之前、或有人手動解除過，都會在下一次報名時補回。
+- 已經存在的標題列也會補上保護（自我修復），所以這份試算表建立於本機制之前、或有人手動解除過，都會在下一次報名時補回。這個「補上」由 `writeRow_()` 在**鎖釋放之後**呼叫。
 
 ⚠️ 與「改 schema 後清空試算表重建標題列」這個流程的交互作用：用「選取全部 → 清除內容」清空**不會**移除第 1 橫的保護，於是重建標題列會撞上「你無法編輯這個範圍」。`unprotectHeader_()` 因此在寫入標題列前先解除任何涵蓋第 1 橫的保護（範圍型與整張表型都包括），寫完再由 `protectHeader_()` 補上。若有人在介面保護了整張表，這條路徑會把它也解除 —— 這是刻意的取捨：讓重建標題列因為權限而失敗，代價大於它避免的麻煩。
 
@@ -523,11 +551,12 @@ flowchart LR
 {
   "ok": true,
   "service": "otc-application-form",
-  "sheet": { "name": "Sheet1", "lastRow": 12, "lastColumn": 16 }
+  "sheet": { "name": "Sheet1", "lastRow": 12, "lastColumn": 16 },
+  "busy": { "count": 0, "lastAt": null }
 }
 ```
 
-用來確認三件事：部署是否上線、是否正確附加在試算表上、欄位數是否為 16。若 `sheet` 變成 `{"error": "…"}`，代表綁定有問題。`lastColumn` 應等於 [schema.md](./schema.md#試算表欄位) 的欄位總數。
+用來確認三件事：部署是否上線、是否正確附加在試算表上、欄位數是否為 16。若 `sheet` 變成 `{"error": "…"}`，代表綁定有問題。`lastColumn` 應等於 [schema.md](./schema.md#試算表欄位) 的欄位總數。`busy` 是取不到落表鎖的累計次數，見「忙碌次數診斷」。
 
 ## 安全限制
 

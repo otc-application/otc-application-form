@@ -13,6 +13,7 @@ export default function App() {
   const [values, setValues] = useState(() => createInitialValues(formSchema))
   const [errors, setErrors] = useState({})
   const [submitError, setSubmitError] = useState('')
+  const [submitNotice, setSubmitNotice] = useState('')
   const [status, setStatus] = useState('idle')
   const [submitted, setSubmitted] = useState(null)
 
@@ -45,8 +46,13 @@ export default function App() {
 
     setStatus('submitting')
     setSubmitError('')
+    setSubmitNotice('')
     try {
-      await submitApplication(values, formSchema)
+      // 後端忙碌時 submitApplication 會在重試前呼叫 onRetry，讓遮罩顯示
+      // 「系統繁忙，正在重試…」而不是讓使用者對著「送出中…」乾等。
+      await submitApplication(values, formSchema, {
+        onRetry: () => setSubmitNotice('系統繁忙，正在重試…'),
+      })
       setSubmitted(values)
       setStatus('success')
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -54,6 +60,7 @@ export default function App() {
     } catch (error) {
       console.error('[報名表] 送出失敗：', error)
       setStatus('idle')
+      setSubmitNotice('')
       setSubmitError(error.message)
     }
   }
@@ -62,13 +69,14 @@ export default function App() {
     setValues(createInitialValues(formSchema))
     setErrors({})
     setSubmitError('')
+    setSubmitNotice('')
     setSubmitted(null)
     setStatus('idle')
   }
 
   return (
     <div className="min-h-screen">
-      {submitting && <LoadingOverlay />}
+      {submitting && <LoadingOverlay notice={submitNotice} />}
 
       <main className="mx-auto w-full max-w-2xl px-4 py-6 sm:py-10">
         <DescriptionSection />
