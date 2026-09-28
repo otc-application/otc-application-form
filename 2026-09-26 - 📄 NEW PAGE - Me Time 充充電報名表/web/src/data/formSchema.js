@@ -124,7 +124,7 @@ export const formSchema = [
   {
     name: 'childrenByDate',
     type: 'childrenByDate',
-    label: '本人會帶子女享用兒童區的藝術／益智遊戲',
+    label: '本人會攜同子女享用兒童區的藝術／益智遊戲',
     hint: '勾選場次後，請填寫每位子女的姓名與年齡；不帶子女請略過此區。',
     dates: sessionDates,
   },

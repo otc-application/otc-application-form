@@ -123,7 +123,8 @@ function CourseGroup({ group }) {
           <h3 className="text-xl font-bold text-stone-900">{group.name}</h3>
           <p className="mt-1 text-sm text-stone-600">
             導師：<span className="font-medium text-stone-800">{group.teacher}</span>
-            <span className="text-stone-500">（{group.teacherTitle}）</span>
+            <br />
+            <span className="text-stone-500">{group.teacherTitle}</span>
           </p>
         </div>
       </div>
@@ -170,7 +171,7 @@ export default function DescriptionSection() {
           {eventInfo.organizer}
         </p>
         <h1 className="mt-2 text-3xl font-black tracking-tight text-stone-900 sm:text-4xl">
-          {eventInfo.title}
+          <span style={{ fontSize: '65%' }}>New Page 2026 - </span>Me Time 充充電報名表
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-relaxed text-stone-700 sm:text-lg">
           {eventInfo.tagline}
@@ -191,6 +192,9 @@ export default function DescriptionSection() {
       <div className="card mt-6">
         <h2 className="mb-4 text-lg font-bold text-stone-900">收費</h2>
         <PricingCards />
+        <p className="mt-4 text-[15px] leading-relaxed text-stone-700">
+          10月19日起：$50/堂。名額有限，欲報從速！
+        </p>
       </div>
 
       <div className="card mt-6">

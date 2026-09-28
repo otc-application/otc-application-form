@@ -5,8 +5,8 @@
  * 換活動時請依新的 Description.md 改寫這個檔案，版面元件不需要動。
  */
 export const eventInfo = {
-  title: 'Me Time 充充電報名表',
-  tagline: '給自己 2.5 小時，把混亂與忙碌的心情整頓',
+  title: 'New Page 2026 - Me Time 充充電報名表',
+  tagline: '給自己兩個半小時，把混亂與忙碌的心情整頓',
   organizer: '基督教宣道會愛荃堂',
   /**
    * 主辦單位官方網站。「活動資訊 → 主辦單位」會渲染成連到此網站的連結。
@@ -31,27 +31,27 @@ export const eventInfo = {
    */
   mapUrl:
     'https://www.openstreetmap.org/?mlat=22.370661&mlon=114.119571&zoom=19#map=19/22.370661/114.119571&layers=N',
-  quota: '每堂最多 12 位（名額有限，新朋友及報 4 堂或以上優先考慮）',
-  eligibility: ['男／女成年人（65 歲以下）', '無需任何相關的基礎知識'],
+  quota: '每堂最多 12 位（新朋友優先）',
+  eligibility: ['適合職青或成人參與、無需任何相關的基礎知識'],
   contact: { phone: '24114170', person: '劉姑娘' },
   pricing: [
     {
-      label: '早鳥優惠價',
+      label: '早鳥優惠至10月18日',
       deadline: '10 月 18 日',
       highlight: true,
-      items: ['$150 / 4 堂', '$200 / 6 堂'],
+      items: ['四堂：$150', '六堂：$200'],
     },
     {
-      label: '截止報名日收費',
-      deadline: '10 月 25 日',
+      label: '一般收費',
+      deadline: '10 月 19 日 起',
       highlight: false,
-      items: ['$200 / 4 堂', '$300 / 6 堂'],
+      items: ['每堂 $50'],
     },
   ],
   notes: [
-    '特設兒童區，安排專人帶領兒童藝術／益智遊戲，讓需要享受 Me Time 的參加者輕鬆投入活動。',
+    '為了讓參加者能夠專注享受 Me Time 並輕鬆投入活動，我們設有兒童及少年區，有專業導師帶領藝術及益智活動。',
     '兒童區歡迎 K2 至初中參加。',
-    '名額有限，新朋友及報 4 堂或以上優先考慮。',
+    '名額有限，新朋友優先。',
   ],
 }
 
@@ -66,7 +66,7 @@ export const eventInfo = {
  * 換活動時記得同步改 gas/Code.gs 的 PAYMENT_NOTICE：Apps Script 讀不到
  * 這個檔案，確認信的文案是另一份副本。
  */
-export const paymentNotice = `早鳥優惠截止 ${eventInfo.pricing[0].deadline}前報名，一般收費截止 ${eventInfo.pricing[1].deadline}。`
+export const paymentNotice = '早鳥優惠截止 10 月 18 日前報名。'
 
 /** 各課程／班別詳細介紹，對應 Description.md 的三個章節。 */
 export const courseGroups = [
@@ -84,10 +84,10 @@ export const courseGroups = [
         time: '10:00 ～ 12:30',
         theme: '隨心而流，與光共舞（酒精墨水治癒燈箱製作）',
         intro:
-          '生活太匆忙，你有多久沒有放下擔子，給自己真正的治癒時間？給自己 2.5 小時，將混亂與忙碌的心情整頓，讓壓力隨墨水暈開，用流動的色彩，點亮你的專屬夜光吧！',
+          '生活太匆忙，你有多久沒有放下擔子，給自己真正的治癒時間？給自己兩個半小時，將混亂與忙碌的心情整頓，讓壓力隨墨水暈開，用流動的色彩，點亮你的專屬夜光吧！',
         highlights: [
           '零基礎也能做出獨一無二的亮麗動人作品。',
-          '製作過程極具療癒感。',
+          '製作過程充滿療癒感。',
           '成品實用性強，日間不開燈就如裝飾畫箱，晚上開燈照亮周圍，充滿溫暖，暖透心窩。',
         ],
       },
