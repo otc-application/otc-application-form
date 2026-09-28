@@ -36,16 +36,9 @@ export const eventInfo = {
   contact: { phone: '24114170', person: '劉姑娘' },
   pricing: [
     {
-      label: '早鳥優惠至10月18日',
-      deadline: '10 月 18 日',
+      label: '🎉 早鳥優惠至10月18日',
       highlight: true,
       items: ['四堂：$150', '六堂：$200'],
-    },
-    {
-      label: '一般收費',
-      deadline: '10 月 19 日 起',
-      highlight: false,
-      items: ['每堂 $50'],
     },
   ],
   notes: [
@@ -123,7 +116,7 @@ export const courseGroups = [
         intro:
           '同時可認識自己的獨特、尋找您的原動力、接納限制尋突破、踏出滿有盼望的人生。',
         highlights: [
-          '每堂名額 12 位，新朋友及報 4 堂或以上優先考慮。',
+          '每堂名額 12 位，新朋友考慮。',
           '無需任何相關的基礎知識。',
         ],
       },

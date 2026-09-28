@@ -98,7 +98,7 @@ function PricingCards() {
               </span>
             )}
           </div>
-          <p className="mt-1 text-xs text-stone-500">截止 {tier.deadline}</p>
+          <p className="mt-1 text-xs text-stone-500">{tier.deadline && `截止 ${tier.deadline}`}</p>
           <ul className="mt-3 space-y-1">
             {tier.items.map((item) => (
               <li key={item} className="text-lg font-semibold text-stone-900">
