@@ -232,7 +232,7 @@ function ChildrenField({ field, value, errors, onChange }) {
                           className="mb-1 block text-xs font-medium text-stone-600"
                           htmlFor={`${field.name}-${date.value}-${index}-name`}
                         >
-                          子女姓名
+                          兒童或青少年姓名
                         </label>
                         <input
                           id={`${field.name}-${date.value}-${index}-name`}
@@ -283,7 +283,7 @@ function ChildrenField({ field, value, errors, onChange }) {
                     onClick={() => addChild(date.value)}
                     className="min-h-11 w-full rounded-xl border border-dashed border-rose-300 px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                   >
-                    ＋ 再加一位子女
+                    ＋ 再加一位兒童或青少年
                   </button>
                 </div>
               )}
