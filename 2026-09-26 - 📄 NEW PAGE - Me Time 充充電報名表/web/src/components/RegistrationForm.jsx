@@ -62,7 +62,7 @@ export default function RegistrationForm({
               {submitting ? '送出中…' : '送出報名資料'}
             </button>
             <p className="mt-3 text-center text-xs leading-relaxed text-stone-500">
-              送出後將以電話聯絡確認，請確保填寫的聯絡電話正確。
+              收到您的報名資訊後，專人將於 3-4個工作天內與您聯繫，確認報名結果並協助辦理後續付款事宜。
             </p>
           </div>
         </form>
