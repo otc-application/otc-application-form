@@ -38,12 +38,12 @@ export const EMAIL_CONSENT = { yes: '需要', no: '不需要' }
 export const formSchema = [
   {
     name: 'attendeeName',
-    column: '參加者姓名',
+    column: '報名者姓名',
     type: 'text',
-    label: '參加者姓名',
+    label: '報名者姓名',
     required: true,
-    placeholder: '請填寫參加者姓名',
-    hint: '每位參加者請填寫一張報名表。',
+    placeholder: '請填寫報名者姓名',
+    hint: '每位報名者請填寫一張報名表。',
   },
   {
     name: 'phone',
