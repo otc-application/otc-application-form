@@ -36,9 +36,9 @@ export const eventInfo = {
   contact: { phone: '24114170', person: '劉姑娘' },
   pricing: [
     {
-      label: '🎉 早鳥優惠至10月18日',
+      label: '套票優惠：$150 任選 4 堂／$200 任選5堂',
       highlight: true,
-      items: ['正價：$50／堂', '套票優惠：$150 任選 4 堂／$200 任選5堂'],
+      items: ['正價：$50／堂'],
     },
   ],
   notes: [
