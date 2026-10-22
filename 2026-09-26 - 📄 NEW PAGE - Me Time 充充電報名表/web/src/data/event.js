@@ -36,9 +36,9 @@ export const eventInfo = {
   contact: { phone: '24114170', person: '劉姑娘' },
   pricing: [
     {
-      label: '🎉 套票優惠',
+      label: '',
       highlight: true,
-      items: ['套票優惠：$150 任選 4 堂／$200 任選5堂', '正價：$50／堂'],
+      items: ['套票優惠：$150 任選 4 堂／$200 任選5堂', '', '正價：$50／堂'],
     },
   ],
   notes: [
