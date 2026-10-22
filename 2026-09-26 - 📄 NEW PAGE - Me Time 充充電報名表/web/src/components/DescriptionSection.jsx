@@ -94,7 +94,7 @@ function PricingCards() {
             <h4 className="text-base font-bold text-stone-900">{tier.label}</h4>
             {tier.highlight && (
               <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">
-                最優惠
+                套票優惠
               </span>
             )}
           </div>
