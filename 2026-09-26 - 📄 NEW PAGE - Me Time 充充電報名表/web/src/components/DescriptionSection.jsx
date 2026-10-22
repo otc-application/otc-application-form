@@ -192,7 +192,7 @@ export default function DescriptionSection() {
       <div className="card mt-6">
         <h2 className="mb-4 text-lg font-bold text-stone-900">收費</h2>
         <PricingCards />
-        <p className="mt-4 text-[15px] leading-relaxed text-stone-700">
+        <p className="mt-4 text-[15px] leading-relaxed text-stone-700" style="display:none!important">
           10月19日起：$50/堂。名額有限，欲報從速！
         </p>
       </div>
