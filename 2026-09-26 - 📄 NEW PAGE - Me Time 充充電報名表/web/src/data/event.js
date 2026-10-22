@@ -38,7 +38,7 @@ export const eventInfo = {
     {
       label: '🎉 早鳥優惠至10月18日',
       highlight: true,
-      items: ['四堂：$150', '六堂：$200'],
+      items: ['正價：$50／堂', '套票優惠：$150 任選 4 堂／$200 任選5堂'],
     },
   ],
   notes: [
