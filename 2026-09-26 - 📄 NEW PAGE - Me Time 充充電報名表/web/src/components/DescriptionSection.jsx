@@ -93,7 +93,7 @@ function PricingCards() {
           <div className="flex items-center gap-2">
             <h4 className="text-base font-bold text-stone-900">{tier.label}</h4>
             {tier.highlight && (
-              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[20px] font-semibold text-white">
                 套票優惠
               </span>
             )}
